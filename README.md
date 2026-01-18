@@ -1,6 +1,7 @@
 # OKX Public API Demo
 
 这个项目演示如何使用 OKX 官方公开接口获取支持的交易项目以及实时行情数据（挂单/成交）。
+代码已整合到 `src/tauto/okx.py`，并在请求失败时内置重试逻辑。
 
 ## 环境要求
 
@@ -30,6 +31,21 @@ python main.py book BTC-USDT --depth 5
 
 ```bash
 python main.py trades BTC-USDT --limit 100
+```
+
+## 代码调用示例
+
+```python
+from tauto.okx import OkxClient
+
+client = OkxClient(max_retries=3, retry_backoff=0.5)
+instruments = client.list_instruments("SPOT")
+```
+
+## 测试
+
+```bash
+pytest
 ```
 
 ## 说明

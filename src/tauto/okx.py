@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
+
+
+class OkxApiError(RuntimeError):
+    """Raised when the OKX API responds with a non-zero code."""
 
 
 @dataclass(frozen=True)
@@ -14,15 +19,28 @@ class OkxClient:
 
     base_url: str = "https://www.okx.com"
     timeout: float = 10.0
+    max_retries: int = 3
+    retry_backoff: float = 0.5
 
     def _request(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
-        response = requests.get(url, params=params, timeout=self.timeout)
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("code") != "0":
-            raise RuntimeError(f"OKX API error: {payload}")
-        return payload
+        last_error: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = requests.get(url, params=params, timeout=self.timeout)
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("code") != "0":
+                    raise OkxApiError(f"OKX API error: {payload}")
+                return payload
+            except (requests.RequestException, ValueError, OkxApiError) as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    raise
+                time.sleep(self.retry_backoff * attempt)
+        if last_error:
+            raise last_error
+        raise RuntimeError("Unexpected request failure without exception.")
 
     def list_instruments(self, inst_type: str = "SPOT") -> List[Dict[str, Any]]:
         """Return all instruments for a given type (SPOT, SWAP, FUTURES, OPTION)."""
@@ -52,4 +70,4 @@ def summarize_instruments(instruments: Iterable[Dict[str, Any]]) -> List[str]:
     return [instrument.get("instId", "") for instrument in instruments]
 
 
-__all__ = ["OkxClient", "summarize_instruments"]
+__all__ = ["OkxApiError", "OkxClient", "summarize_instruments"]

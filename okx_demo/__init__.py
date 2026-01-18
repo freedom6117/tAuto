@@ -1,1 +1,0 @@
-"""OKX demo client package."""

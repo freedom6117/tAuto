@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from pathlib import Path
 from typing import Any
 
-from okx_demo.client import OkxClient, summarize_instruments
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from tauto.okx import OkxClient, summarize_instruments  # noqa: E402
 
 
 def _pretty_print(data: Any) -> None:
