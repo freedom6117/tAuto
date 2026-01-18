@@ -62,6 +62,23 @@ def test_get_trades() -> None:
     assert trades == [{"tradeId": "1"}]
 
 
+def test_get_candlesticks() -> None:
+    response = DummyResponse(
+        {"code": "0", "data": [["1", "2", "3", "4", "5", "6", "7"]]}
+    )
+
+    with patch("requests.get", return_value=response) as mock_get:
+        client = OkxClient()
+        candles = client.get_candlesticks("BTC-USDT", bar="1m", limit=2)
+
+    assert candles == [["1", "2", "3", "4", "5", "6", "7"]]
+    mock_get.assert_called_once_with(
+        "https://www.okx.com/api/v5/market/candles",
+        params={"instId": "BTC-USDT", "bar": "1m", "limit": "2"},
+        timeout=client.timeout,
+    )
+
+
 def test_retries_on_request_failure() -> None:
     good_response = DummyResponse({"code": "0", "data": []})
     mock_get = MagicMock(side_effect=[requests.RequestException("boom"), good_response])

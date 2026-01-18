@@ -33,6 +33,12 @@ python main.py book BTC-USDT --depth 5
 python main.py trades BTC-USDT --limit 100
 ```
 
+获取 BTC-USDT K 线（1 分钟，100 根）：
+
+```bash
+python -c "from tauto.okx import OkxClient; print(OkxClient().get_candlesticks('BTC-USDT', bar='1m', limit=100))"
+```
+
 ## 代码调用示例
 
 ```python
@@ -40,6 +46,8 @@ from tauto.okx import OkxClient
 
 client = OkxClient(max_retries=3, retry_backoff=0.5)
 instruments = client.list_instruments("SPOT")
+trades = client.get_trades("BTC-USDT", limit=100)
+candles = client.get_candlesticks("BTC-USDT", bar="1m", limit=100)
 ```
 
 ## 测试
