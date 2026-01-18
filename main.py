@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Realtime fetch QPS",
     )
 
+    candles_monitor_parser = subparsers.add_parser(
+        "candles-monitor", help="Monitor candlestick storage for 1 minute"
+    )
+    candles_monitor_parser.add_argument("inst_id", help="Instrument ID, e.g. BTC-USDT")
+    candles_monitor_parser.add_argument("--bar", default="1s", help="Candlestick bar")
+    candles_monitor_parser.add_argument(
+        "--db", default="candles.db", help="SQLite DB path"
+    )
+    candles_monitor_parser.add_argument(
+        "--duration",
+        type=int,
+        default=60,
+        help="Monitor duration in seconds",
+    )
+    candles_monitor_parser.add_argument(
+        "--history-qps",
+        type=float,
+        default=10.0,
+        help="Historical fetch QPS",
+    )
+    candles_monitor_parser.add_argument(
+        "--realtime-qps",
+        type=float,
+        default=1.0,
+        help="Realtime fetch QPS",
+    )
+
     return parser
 
 
@@ -122,6 +150,29 @@ def main() -> None:
             service.fill_since_latest(args.inst_id)
         deleted = service.cleanup_old_data()
         _pretty_print({"deleted": deleted})
+        return
+
+    if args.command == "candles-monitor":
+        store = SqliteCandleStore(args.db)
+        service = CandlestickService(
+            client=client,
+            store=store,
+            bar=args.bar,
+            history_qps=args.history_qps,
+            realtime_qps=args.realtime_qps,
+        )
+        service.initialize()
+        start = time.monotonic()
+        for tick in range(args.duration):
+            service.fetch_realtime(args.inst_id)
+            latest = store.latest_timestamp(args.inst_id, args.bar)
+            now = time.strftime("%Y-%m-%d %H:%M:%S")
+            print(
+                f"[{now}] tick={tick + 1}/{args.duration} "
+                f"latest_ts={latest or 'n/a'}"
+            )
+            next_tick = start + tick + 1
+            time.sleep(max(0.0, next_tick - time.monotonic()))
         return
 
 

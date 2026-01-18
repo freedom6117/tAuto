@@ -51,6 +51,12 @@ python main.py candles BTC-USDT --bar 1s --db candles.db
 python main.py candles BTC-USDT --bar 1s --db candles.db --start 1704067200000 --end 1704153600000
 ```
 
+测试监控（持续运行 1 分钟，每 1 秒打印一次日志）：
+
+```bash
+python main.py candles-monitor BTC-USDT --bar 1s --db candles.db --duration 60
+```
+
 ## 代码调用示例
 
 ```python
