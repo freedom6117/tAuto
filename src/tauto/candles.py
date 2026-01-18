@@ -157,6 +157,8 @@ class CandlestickService:
 
 
 def _bar_to_milliseconds(bar: str) -> int:
+    if bar.endswith("s"):
+        return int(bar[:-1]) * 1000
     if bar.endswith("m"):
         return int(bar[:-1]) * 60 * 1000
     if bar.endswith("H"):

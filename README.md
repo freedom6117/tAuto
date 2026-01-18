@@ -39,7 +39,7 @@ python main.py trades BTC-USDT --limit 100
 python -c "from tauto.okx import OkxClient; print(OkxClient().get_candlesticks('BTC-USDT', bar='1m', limit=100))"
 ```
 
-持久化获取 K 线并写入 SQLite（秒级数据请使用 `1s` 周期，历史数据默认 QPS 为 10，实时数据默认 QPS 为 1）：
+持久化获取 K 线并写入 SQLite（秒级数据请使用 `1s` 周期，会自动切换到 OKX 的历史 K 线接口；历史数据默认 QPS 为 10，实时数据默认 QPS 为 1）：
 
 ```bash
 python main.py candles BTC-USDT --bar 1s --db candles.db
