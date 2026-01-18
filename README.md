@@ -39,15 +39,35 @@ python main.py trades BTC-USDT --limit 100
 python -c "from tauto.okx import OkxClient; print(OkxClient().get_candlesticks('BTC-USDT', bar='1m', limit=100))"
 ```
 
+持久化获取 K 线并写入 SQLite（秒级数据请使用 `1s` 周期，历史数据默认 QPS 为 10，实时数据默认 QPS 为 1）：
+
+```bash
+python main.py candles BTC-USDT --bar 1s --db candles.db
+```
+
+补拉指定时间范围的历史数据并修复缺失数据：
+
+```bash
+python main.py candles BTC-USDT --bar 1s --db candles.db --start 1704067200000 --end 1704153600000
+```
+
 ## 代码调用示例
 
 ```python
 from tauto.okx import OkxClient
+from tauto.candles import CandlestickService
+from tauto.storage import SqliteCandleStore
 
 client = OkxClient(max_retries=3, retry_backoff=0.5)
 instruments = client.list_instruments("SPOT")
 trades = client.get_trades("BTC-USDT", limit=100)
 candles = client.get_candlesticks("BTC-USDT", bar="1m", limit=100)
+
+store = SqliteCandleStore("candles.db")
+service = CandlestickService(client=client, store=store, bar="1s")
+service.initialize()
+service.fetch_realtime("BTC-USDT")
+service.cleanup_old_data()
 ```
 
 ## 测试
