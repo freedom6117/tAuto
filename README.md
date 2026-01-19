@@ -82,6 +82,19 @@ service.cleanup_old_data()
 pytest
 ```
 
+## KLineChart 前端服务
+
+启动后端服务（提供 K 线接口与前端页面，默认读取 `candles.db`）：
+
+```bash
+uvicorn tauto.server:app --reload
+```
+
+浏览器访问：`http://127.0.0.1:8000/`。
+
+前端会请求 `/api/candles?bar=1m` 等接口，支持 `1m/5m/15m/30m/1h` 周期。你可以通过
+`TAUTO_DB_PATH` 指定数据库路径，或使用 `main.py candles` 命令预先写入历史数据。
+
 ## 说明
 
 - 使用 OKX 的公共接口，无需 API Key。

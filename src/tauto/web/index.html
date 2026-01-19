@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TAuto K 线图</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/klinecharts@9.6.1/dist/klinecharts.min.css"
+    />
+    <style>
+      body {
+        margin: 0;
+        font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: #0e1117;
+        color: #e6edf3;
+      }
+
+      header {
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        background: #161b22;
+        border-bottom: 1px solid #30363d;
+      }
+
+      h1 {
+        font-size: 18px;
+        margin: 0;
+        font-weight: 600;
+      }
+
+      .controls {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      select,
+      button {
+        background: #0d1117;
+        color: #e6edf3;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 14px;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .content {
+        padding: 16px 24px 32px;
+      }
+
+      #chart {
+        width: 100%;
+        height: 600px;
+      }
+
+      .meta {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #8b949e;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>KLineChart 实时 K 线展示</h1>
+      <div class="controls">
+        <label for="barSelect">级别</label>
+        <select id="barSelect">
+          <option value="1m">1m</option>
+          <option value="5m">5m</option>
+          <option value="15m">15m</option>
+          <option value="30m">30m</option>
+          <option value="1h">1h</option>
+        </select>
+        <button id="refreshBtn" type="button">刷新</button>
+      </div>
+    </header>
+    <main class="content">
+      <div id="chart"></div>
+      <div class="meta" id="meta"></div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/klinecharts@9.6.1/dist/klinecharts.min.js"></script>
+    <script>
+      const chart = klinecharts.init("chart");
+      chart.createIndicator("MA", false, { id: "candle_pane" });
+
+      const meta = document.getElementById("meta");
+      const barSelect = document.getElementById("barSelect");
+      const refreshBtn = document.getElementById("refreshBtn");
+
+      async function loadCandles() {
+        const bar = barSelect.value;
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "加载中...";
+        try {
+          const response = await fetch(`/api/candles?bar=${bar}`);
+          if (!response.ok) {
+            throw new Error(`请求失败：${response.status}`);
+          }
+          const payload = await response.json();
+          chart.applyNewData(payload.data);
+          meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${payload.count}`;
+        } catch (error) {
+          meta.textContent = `加载失败：${error.message}`;
+        } finally {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "刷新";
+        }
+      }
+
+      barSelect.addEventListener("change", loadCandles);
+      refreshBtn.addEventListener("click", loadCandles);
+
+      loadCandles();
+    </script>
+  </body>
+</html>
