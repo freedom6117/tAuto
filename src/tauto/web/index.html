@@ -4,10 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TAuto K 线图</title>
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/klinecharts@9.6.1/dist/klinecharts.min.css"
-    />
     <style>
       body {
         margin: 0;
@@ -88,26 +84,41 @@
       <div class="meta" id="meta"></div>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/klinecharts@9.6.1/dist/klinecharts.min.js"></script>
+    <script src="/static/vendor/klinecharts.min.js"></script>
     <script>
-      const chart = klinecharts.init("chart");
-      chart.createIndicator("MA", false, { id: "candle_pane" });
-
       const meta = document.getElementById("meta");
       const barSelect = document.getElementById("barSelect");
       const refreshBtn = document.getElementById("refreshBtn");
+      const chart = window.klinecharts ? klinecharts.init("chart") : null;
+      if (!chart) {
+        meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
+      } else {
+        chart.createIndicator("MA", false, { id: "candle_pane" });
+      }
 
       async function loadCandles() {
         const bar = barSelect.value;
         refreshBtn.disabled = true;
         refreshBtn.textContent = "加载中...";
+        if (!chart) {
+          return;
+        }
         try {
           const response = await fetch(`/api/candles?bar=${bar}`);
           if (!response.ok) {
             throw new Error(`请求失败：${response.status}`);
           }
           const payload = await response.json();
-          chart.applyNewData(payload.data);
+          const data = payload.data.map((item) => ({
+            ...item,
+            timestamp: Number(item.timestamp),
+            open: Number(item.open),
+            high: Number(item.high),
+            low: Number(item.low),
+            close: Number(item.close),
+            volume: Number(item.volume),
+          }));
+          chart.applyNewData(data);
           meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${payload.count}`;
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
