@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,10 @@ client = OkxClient()
 
 @app.on_event("startup")
 def _startup() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    )
     store.initialize()
 
 
@@ -74,10 +79,29 @@ def _refresh_candles(inst_id: str, bar: str, limit: int) -> None:
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
         interval_ms = _bar_to_milliseconds(bar)
         start_ts = now_ts - (limit * interval_ms)
-        service.fetch_history(inst_id, start_ts, now_ts)
+        fetched = service.fetch_history(inst_id, start_ts, now_ts)
+        logging.getLogger(__name__).info(
+            "Fetched %s historical candles for %s (%s)",
+            len(fetched),
+            inst_id,
+            bar,
+        )
         return
-    service.fetch_realtime(inst_id, limit=1)
-    service.fill_since_latest(inst_id)
+    realtime = service.fetch_realtime(inst_id, limit=1)
+    logging.getLogger(__name__).info(
+        "Fetched %s realtime candles for %s (%s)",
+        len(realtime),
+        inst_id,
+        bar,
+    )
+    previous_latest = service.fill_since_latest(inst_id)
+    if previous_latest is not None:
+        logging.getLogger(__name__).info(
+            "Backfilled candles since %s for %s (%s)",
+            previous_latest,
+            inst_id,
+            bar,
+        )
 
 
 def _to_kline_payload(candle: CandleStick) -> dict:

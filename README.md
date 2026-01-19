@@ -87,7 +87,7 @@ pytest
 启动后端服务（提供 K 线接口与前端页面，默认读取 `candles.db`）：
 
 ```bash
-uvicorn tauto.server:app --reload
+PYTHONPATH=src uvicorn tauto.server:app --reload
 ```
 
 浏览器访问：`http://127.0.0.1:8000/`。

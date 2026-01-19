@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Protocol, Sequence
 import sqlite3
@@ -75,6 +76,7 @@ class SqliteCandleStore:
     """SQLite-backed candle storage implementation."""
 
     db_path: str = "candles.db"
+    logger: logging.Logger = logging.getLogger(__name__)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path)
@@ -109,6 +111,9 @@ class SqliteCandleStore:
     def upsert_candles(self, candles: Sequence[CandleStick]) -> None:
         if not candles:
             return
+        inst_id = candles[0].inst_id
+        bar = candles[0].bar
+        latest_ts = candles[-1].ts
         rows = [
             (
                 candle.inst_id,
@@ -144,6 +149,13 @@ class SqliteCandleStore:
                 """,
                 rows,
             )
+        self.logger.info(
+            "Upserted %s candles for %s (%s), latest ts=%s",
+            len(candles),
+            inst_id,
+            bar,
+            latest_ts,
+        )
 
     def fetch_existing_timestamps(
         self,
