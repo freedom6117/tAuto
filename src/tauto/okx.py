@@ -78,7 +78,10 @@ class OkxClient:
             params["after"] = after
         if before:
             params["before"] = before
-        payload = self._request("/api/v5/market/candles", params)
+        path = "/api/v5/market/candles"
+        if bar.endswith("s"):
+            path = "/api/v5/market/history-candles"
+        payload = self._request(path, params)
         return payload.get("data", [])
 
 
