@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Protocol, Sequence
 import sqlite3
@@ -46,6 +47,16 @@ class DatabaseBackend(Protocol):
     def latest_timestamp(self, inst_id: str, bar: str) -> Optional[int]:
         """Fetch the latest timestamp stored for the given instrument."""
 
+    def fetch_candles(
+        self,
+        inst_id: str,
+        bar: str,
+        limit: int = 300,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+    ) -> List[CandleStick]:
+        """Fetch candlestick data for the given range."""
+
     def delete_older_than(self, cutoff_ts: int) -> int:
         """Delete data older than the given timestamp. Returns deleted rows."""
 
@@ -65,6 +76,7 @@ class SqliteCandleStore:
     """SQLite-backed candle storage implementation."""
 
     db_path: str = "candles.db"
+    logger: logging.Logger = logging.getLogger(__name__)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path)
@@ -99,6 +111,9 @@ class SqliteCandleStore:
     def upsert_candles(self, candles: Sequence[CandleStick]) -> None:
         if not candles:
             return
+        inst_id = candles[0].inst_id
+        bar = candles[0].bar
+        latest_ts = candles[-1].ts
         rows = [
             (
                 candle.inst_id,
@@ -134,6 +149,13 @@ class SqliteCandleStore:
                 """,
                 rows,
             )
+        self.logger.info(
+            "Upserted %s candles for %s (%s), latest ts=%s",
+            len(candles),
+            inst_id,
+            bar,
+            latest_ts,
+        )
 
     def fetch_existing_timestamps(
         self,
@@ -163,6 +185,51 @@ class SqliteCandleStore:
             )
             value = cursor.fetchone()[0]
             return int(value) if value is not None else None
+
+    def fetch_candles(
+        self,
+        inst_id: str,
+        bar: str,
+        limit: int = 300,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+    ) -> List[CandleStick]:
+        where_clauses = ["inst_id = ?", "bar = ?"]
+        params: list[object] = [inst_id, bar]
+        if start_ts is not None:
+            where_clauses.append("ts >= ?")
+            params.append(start_ts)
+        if end_ts is not None:
+            where_clauses.append("ts <= ?")
+            params.append(end_ts)
+        where_sql = " AND ".join(where_clauses)
+        query = (
+            "SELECT inst_id, bar, ts, open, high, low, close, volume, "
+            "volume_ccy, volume_quote, confirm "
+            "FROM candles WHERE "
+            f"{where_sql} ORDER BY ts DESC LIMIT ?"
+        )
+        params.append(limit)
+        with self._connect() as connection:
+            cursor = connection.execute(query, params)
+            rows = cursor.fetchall()
+        candles = [
+            CandleStick(
+                inst_id=row[0],
+                bar=row[1],
+                ts=row[2],
+                open=row[3],
+                high=row[4],
+                low=row[5],
+                close=row[6],
+                volume=row[7],
+                volume_ccy=row[8],
+                volume_quote=row[9],
+                confirm=bool(row[10]),
+            )
+            for row in rows
+        ]
+        return list(reversed(candles))
 
     def delete_older_than(self, cutoff_ts: int) -> int:
         with self._connect() as connection:
