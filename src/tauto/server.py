@@ -73,12 +73,16 @@ def index() -> HTMLResponse:
 def get_candles(
     inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
     bar: str = Query("1m", description="Candlestick bar"),
-    limit: int = Query(300, ge=10, le=2000),
+    limit: Optional[int] = Query(300, ge=10, le=2000),
+    all_data: bool = Query(
+        False, description="Return all candles for the selected bar when true."
+    ),
 ) -> dict:
     normalized = SUPPORTED_BARS.get(bar)
     if normalized is None:
         raise HTTPException(status_code=400, detail="Unsupported bar interval")
-    candles = store.fetch_candles(inst_id, normalized, limit=limit)
+    resolved_limit = None if all_data else limit
+    candles = store.fetch_candles(inst_id, normalized, limit=resolved_limit)
     payload = [_to_kline_payload(candle) for candle in candles]
     return {"instId": inst_id, "bar": bar, "count": len(payload), "data": payload}
 

@@ -51,7 +51,7 @@ class DatabaseBackend(Protocol):
         self,
         inst_id: str,
         bar: str,
-        limit: int = 300,
+        limit: Optional[int] = 300,
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
     ) -> List[CandleStick]:
@@ -190,7 +190,7 @@ class SqliteCandleStore:
         self,
         inst_id: str,
         bar: str,
-        limit: int = 300,
+        limit: Optional[int] = 300,
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
     ) -> List[CandleStick]:
@@ -203,15 +203,17 @@ class SqliteCandleStore:
             where_clauses.append("ts <= ?")
             params.append(end_ts)
         where_sql = " AND ".join(where_clauses)
-        query = (
+        base_query = (
             "SELECT inst_id, bar, ts, open, high, low, close, volume, "
             "volume_ccy, volume_quote, confirm "
             "FROM candles WHERE "
-            f"{where_sql} ORDER BY ts DESC LIMIT ?"
+            f"{where_sql} ORDER BY ts DESC"
         )
-        params.append(limit)
+        if limit is not None:
+            base_query = f"{base_query} LIMIT ?"
+            params.append(limit)
         with self._connect() as connection:
-            cursor = connection.execute(query, params)
+            cursor = connection.execute(base_query, params)
             rows = cursor.fetchall()
         candles = [
             CandleStick(

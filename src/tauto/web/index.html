@@ -405,7 +405,7 @@
         }
         try {
           const response = await fetch(
-            `/api/candles?bar=${bar}&inst_id=${encodeURIComponent(instId)}`,
+            `/api/candles?bar=${bar}&inst_id=${encodeURIComponent(instId)}&all_data=true`,
           );
           if (!response.ok) {
             throw new Error(`请求失败：${response.status}`);
