@@ -47,6 +47,7 @@
         color: var(--text-primary);
         display: flex;
         flex-direction: column;
+        overflow: hidden;
       }
 
       header {
@@ -107,12 +108,14 @@
         flex-direction: column;
         flex: 1;
         position: relative;
+        min-height: 0;
       }
 
       #chart {
         width: 100%;
         flex: 1;
         position: relative;
+        height: 100%;
       }
 
       .meta {
@@ -271,6 +274,17 @@
         return Number.isFinite(value) && value > 0 ? value : 5;
       }
 
+      function setCookie(name, value) {
+        const expires = new Date();
+        expires.setDate(expires.getDate() + 30);
+        document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires.toUTCString()}; path=/`;
+      }
+
+      function getCookie(name) {
+        const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+        return match ? decodeURIComponent(match[1]) : null;
+      }
+
       function updateVolumeSpikeIndicator() {
         if (!chart) {
           return;
@@ -317,6 +331,7 @@
         currentTheme = theme;
         document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
         themeToggle.textContent = theme === "light" ? "暗黑模式" : "明亮模式";
+        setCookie("tautoTheme", currentTheme);
       }
 
       function formatNumber(value) {
@@ -416,10 +431,22 @@
       }
 
       barSelect.addEventListener("change", loadCandles);
+      barSelect.addEventListener("change", () => {
+        setCookie("tautoBar", barSelect.value);
+      });
+      instSelect.addEventListener("change", () => {
+        setCookie("tautoInst", instSelect.value);
+      });
       instSelect.addEventListener("change", loadCandles);
       refreshBtn.addEventListener("click", loadCandles);
       windowInput.addEventListener("change", updateVolumeSpikeIndicator);
+      windowInput.addEventListener("change", () => {
+        setCookie("tautoWindow", windowInput.value);
+      });
       multiplierInput.addEventListener("change", updateVolumeSpikeIndicator);
+      multiplierInput.addEventListener("change", () => {
+        setCookie("tautoMultiplier", multiplierInput.value);
+      });
       themeToggle.addEventListener("click", () => {
         setTheme(currentTheme === "light" ? "dark" : "light");
       });
@@ -429,7 +456,24 @@
         });
       }
 
-      setTheme("dark");
+      const savedBar = getCookie("tautoBar");
+      if (savedBar && [...barSelect.options].some((option) => option.value === savedBar)) {
+        barSelect.value = savedBar;
+      }
+      const savedInst = getCookie("tautoInst");
+      if (savedInst && [...instSelect.options].some((option) => option.value === savedInst)) {
+        instSelect.value = savedInst;
+      }
+      const savedWindow = getCookie("tautoWindow");
+      if (savedWindow) {
+        windowInput.value = savedWindow;
+      }
+      const savedMultiplier = getCookie("tautoMultiplier");
+      if (savedMultiplier) {
+        multiplierInput.value = savedMultiplier;
+      }
+      const savedTheme = getCookie("tautoTheme") || "dark";
+      setTheme(savedTheme);
       loadCandles();
       window.addEventListener("resize", updatePaneHeights);
       setInterval(loadCandles, 15000);
