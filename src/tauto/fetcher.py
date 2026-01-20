@@ -13,9 +13,22 @@ from .storage import SqliteCandleStore
 
 DEFAULT_INST_ID = os.getenv("TAUTO_INST_ID", "BTC-USDT")
 DEFAULT_DB_PATH = os.getenv("TAUTO_DB_PATH", "candles.db")
-DEFAULT_BAR = os.getenv("TAUTO_BAR", "1m")
 DEFAULT_LIMIT = int(os.getenv("TAUTO_FETCH_LIMIT", "300"))
 DEFAULT_INTERVAL = float(os.getenv("TAUTO_FETCH_INTERVAL", "15"))
+DEFAULT_QPS = float(os.getenv("TAUTO_FETCH_QPS", "10"))
+DEFAULT_BARS = [
+    "1m",
+    "5m",
+    "15m",
+    "30m",
+    "1H",
+    "2H",
+    "4H",
+    "6H",
+    "8H",
+    "12H",
+    "1D",
+]
 
 
 def run_fetcher() -> None:
@@ -26,12 +39,20 @@ def run_fetcher() -> None:
     store = SqliteCandleStore(DEFAULT_DB_PATH)
     store.initialize()
     client = OkxClient()
-    service = CandlestickService(client=client, store=store, bar=DEFAULT_BAR)
-    service.initialize()
+    services = {}
+    for bar in DEFAULT_BARS:
+        service = CandlestickService(client=client, store=store, bar=bar)
+        service.initialize()
+        services[bar] = service
+    min_interval = 1 / max(DEFAULT_QPS, 1)
 
     while True:
-        _refresh_candles(service, store, DEFAULT_INST_ID, DEFAULT_BAR, DEFAULT_LIMIT)
-        time.sleep(DEFAULT_INTERVAL)
+        cycle_start = time.time()
+        for bar, service in services.items():
+            _refresh_candles(service, store, DEFAULT_INST_ID, bar, DEFAULT_LIMIT)
+            time.sleep(min_interval)
+        elapsed = time.time() - cycle_start
+        time.sleep(max(0, DEFAULT_INTERVAL - elapsed))
 
 
 def _refresh_candles(
@@ -70,7 +91,7 @@ def _refresh_candles(
             inst_id,
             bar,
         )
-    start_ts = max(latest, _thirty_days_ago(now_ts))
+    start_ts = max(latest, _three_months_ago(now_ts))
     if start_ts < now_ts:
         fetched = service.fetch_history(inst_id, start_ts, now_ts)
         logging.getLogger(__name__).info(
@@ -94,8 +115,8 @@ def _bar_to_milliseconds(bar: str) -> int:
     raise ValueError(f"Unsupported bar format: {bar}")
 
 
-def _thirty_days_ago(now_ts: int) -> int:
-    return now_ts - (30 * 24 * 60 * 60 * 1000)
+def _three_months_ago(now_ts: int) -> int:
+    return now_ts - (90 * 24 * 60 * 60 * 1000)
 
 
 if __name__ == "__main__":

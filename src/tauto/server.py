@@ -23,6 +23,18 @@ SUPPORTED_BARS = {
     "30m": "30m",
     "1h": "1H",
     "1H": "1H",
+    "2h": "2H",
+    "2H": "2H",
+    "4h": "4H",
+    "4H": "4H",
+    "6h": "6H",
+    "6H": "6H",
+    "8h": "8H",
+    "8H": "8H",
+    "12h": "12H",
+    "12H": "12H",
+    "1d": "1D",
+    "1D": "1D",
 }
 
 DEFAULT_INST_ID = os.getenv("TAUTO_INST_ID", "BTC-USDT")
