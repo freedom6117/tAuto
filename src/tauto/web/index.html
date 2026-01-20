@@ -163,7 +163,6 @@
           <input id="multiplierInput" type="number" min="1" step="0.1" value="5" />
         </div>
         <button id="themeToggle" type="button">明亮模式</button>
-        <button id="crosshairToggle" type="button">隐藏坐标线</button>
         <button id="refreshBtn" type="button">刷新</button>
       </div>
     </header>
@@ -180,13 +179,11 @@
       const windowInput = document.getElementById("windowInput");
       const multiplierInput = document.getElementById("multiplierInput");
       const themeToggle = document.getElementById("themeToggle");
-      const crosshairToggle = document.getElementById("crosshairToggle");
       const chartContainer = document.getElementById("chart");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
       const candlePaneId = "candle_pane";
       const volumePaneId = "volume_pane";
       const macdPaneId = "macd_pane";
-      let crosshairVisible = true;
       let currentTheme = "dark";
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
@@ -298,26 +295,6 @@
         themeToggle.textContent = theme === "light" ? "暗黑模式" : "明亮模式";
       }
 
-      function setCrosshairVisibility(show) {
-        if (!chart) {
-          return;
-        }
-        crosshairVisible = show;
-        crosshairToggle.textContent = show ? "隐藏坐标线" : "显示坐标线";
-        chart.setStyles({
-          crosshair: {
-            show,
-            horizontal: { show },
-            vertical: { show },
-          },
-          tooltip: {
-            showRule: show
-              ? klinecharts.TooltipShowRule.FollowCross
-              : klinecharts.TooltipShowRule.None,
-          },
-        });
-      }
-
       function formatNumber(value) {
         if (!Number.isFinite(value)) {
           return "--";
@@ -418,10 +395,6 @@
       themeToggle.addEventListener("click", () => {
         setTheme(currentTheme === "light" ? "dark" : "light");
       });
-      crosshairToggle.addEventListener("click", () => {
-        setCrosshairVisibility(!crosshairVisible);
-      });
-
       if (chart) {
         chart.subscribeAction(klinecharts.ActionType.OnCrosshairChange, (payload) => {
           updateVolumeTooltip(payload);
@@ -429,7 +402,6 @@
       }
 
       setTheme("dark");
-      setCrosshairVisibility(true);
       loadCandles();
       window.addEventListener("resize", updatePaneHeights);
       setInterval(loadCandles, 15000);

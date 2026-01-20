@@ -78,7 +78,7 @@ def _refresh_candles(inst_id: str, bar: str, limit: int) -> None:
     if latest is None:
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
         interval_ms = _bar_to_milliseconds(bar)
-        start_ts = now_ts - (limit * interval_ms)
+        start_ts = max(_thirty_days_ago(now_ts), now_ts - (limit * interval_ms))
         fetched = service.fetch_history(inst_id, start_ts, now_ts)
         logging.getLogger(__name__).info(
             "Fetched %s historical candles for %s (%s)",
@@ -87,6 +87,7 @@ def _refresh_candles(inst_id: str, bar: str, limit: int) -> None:
             bar,
         )
         return
+    now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
     realtime = service.fetch_realtime(inst_id, limit=1)
     logging.getLogger(__name__).info(
         "Fetched %s realtime candles for %s (%s)",
@@ -99,6 +100,16 @@ def _refresh_candles(inst_id: str, bar: str, limit: int) -> None:
         logging.getLogger(__name__).info(
             "Backfilled candles since %s for %s (%s)",
             previous_latest,
+            inst_id,
+            bar,
+        )
+    start_ts = max(latest, _thirty_days_ago(now_ts))
+    if start_ts < now_ts:
+        fetched = service.fetch_history(inst_id, start_ts, now_ts)
+        logging.getLogger(__name__).info(
+            "Filled candles from %s to %s for %s (%s)",
+            start_ts,
+            now_ts,
             inst_id,
             bar,
         )
@@ -125,3 +136,7 @@ def _bar_to_milliseconds(bar: str) -> int:
     if bar.endswith("D"):
         return int(bar[:-1]) * 24 * 60 * 60 * 1000
     raise ValueError(f"Unsupported bar format: {bar}")
+
+
+def _thirty_days_ago(now_ts: int) -> int:
+    return now_ts - (30 * 24 * 60 * 60 * 1000)
