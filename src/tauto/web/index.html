@@ -102,10 +102,11 @@
       }
 
       .content {
-        padding: 16px 24px 32px;
+        padding: 16px 24px;
         display: flex;
         flex-direction: column;
         flex: 1;
+        position: relative;
       }
 
       #chart {
@@ -115,9 +116,11 @@
       }
 
       .meta {
-        margin-top: 12px;
         font-size: 13px;
         color: var(--text-muted);
+        position: absolute;
+        right: 24px;
+        bottom: 12px;
       }
 
       .pane-border {
