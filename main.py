@@ -66,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     candles_parser.add_argument(
         "--history-qps",
         type=float,
-        default=20.0,
+        default=10.0,
         help="Historical fetch QPS",
     )
     candles_parser.add_argument(
@@ -93,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     candles_monitor_parser.add_argument(
         "--history-qps",
         type=float,
-        default=20.0,
+        default=10.0,
         help="Historical fetch QPS",
     )
     candles_monitor_parser.add_argument(

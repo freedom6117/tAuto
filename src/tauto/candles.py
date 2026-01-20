@@ -42,7 +42,7 @@ class CandlestickService:
     client: OkxClient
     store: DatabaseBackend
     bar: str = "1m"
-    history_qps: float = 20.0
+    history_qps: float = 10.0
     realtime_qps: float = 1.0
     retention_months: int = 1
     history_limit: int = 300
@@ -83,6 +83,7 @@ class CandlestickService:
                 bar=self.bar,
                 limit=self.history_limit,
                 before=before,
+                use_history=True,
             )
             if not data:
                 break

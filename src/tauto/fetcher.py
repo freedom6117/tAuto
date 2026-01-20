@@ -21,7 +21,7 @@ DEFAULT_INST_IDS = [
 DEFAULT_DB_PATH = os.getenv("TAUTO_DB_PATH", "candles.db")
 DEFAULT_LIMIT = int(os.getenv("TAUTO_FETCH_LIMIT", "300"))
 DEFAULT_INTERVAL = float(os.getenv("TAUTO_FETCH_INTERVAL", "15"))
-DEFAULT_QPS = float(os.getenv("TAUTO_FETCH_QPS", "20"))
+DEFAULT_QPS = float(os.getenv("TAUTO_FETCH_QPS", "10"))
 DEFAULT_BACKFILL_DAYS = int(os.getenv("TAUTO_BACKFILL_DAYS_PER_CYCLE", "3"))
 DEFAULT_BARS = [
     "1m",

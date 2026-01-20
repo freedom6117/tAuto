@@ -95,6 +95,7 @@ class OkxClient:
         limit: int = 100,
         after: Optional[str] = None,
         before: Optional[str] = None,
+        use_history: bool = False,
     ) -> List[List[str]]:
         """获取指定交易对的 K 线数据，支持不同周期，用于绘制 K 线。"""
         params: Dict[str, Any] = {"instId": inst_id, "bar": bar, "limit": str(limit)}
@@ -102,9 +103,7 @@ class OkxClient:
             params["after"] = after
         if before:
             params["before"] = before
-        path = "/api/v5/market/candles"
-        if bar.endswith("s"):
-            path = "/api/v5/market/history-candles"
+        path = "/api/v5/market/history-candles" if use_history else "/api/v5/market/candles"
         payload = self._request(path, params)
         return payload.get("data", [])
 
