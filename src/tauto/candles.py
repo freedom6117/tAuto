@@ -42,7 +42,7 @@ class CandlestickService:
     client: OkxClient
     store: DatabaseBackend
     bar: str = "1m"
-    history_qps: float = 10.0
+    history_qps: float = 20.0
     realtime_qps: float = 1.0
     retention_months: int = 1
     history_limit: int = 300
@@ -165,6 +165,10 @@ def _bar_to_milliseconds(bar: str) -> int:
         return int(bar[:-1]) * 60 * 60 * 1000
     if bar.endswith("D"):
         return int(bar[:-1]) * 24 * 60 * 60 * 1000
+    if bar.endswith("W"):
+        return int(bar[:-1]) * 7 * 24 * 60 * 60 * 1000
+    if bar.endswith("M"):
+        return int(bar[:-1]) * 30 * 24 * 60 * 60 * 1000
     raise ValueError(f"Unsupported bar format: {bar}")
 
 

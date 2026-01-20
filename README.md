@@ -92,7 +92,7 @@ PYTHONPATH=src uvicorn tauto.server:app --reload
 
 浏览器访问：`http://127.0.0.1:8000/`。
 
-前端会请求 `/api/candles?bar=1m&inst_id=BTC-USDT` 等接口，支持 `1m/5m/15m/30m/1h/2h/4h/6h/8h/12h/1d` 周期与
+前端会请求 `/api/candles?bar=1m&inst_id=BTC-USDT` 等接口，支持 `1m/5m/15m/30m/1h/2h/4h/6h/12h/1d/2d/3d/1w/1M/3M` 周期与
 `BTC-USDT/BTC-USDT-SWAP` 标的。你可以通过
 `TAUTO_DB_PATH` 指定数据库路径，或使用 `main.py candles` 命令预先写入历史数据。
 
@@ -112,7 +112,7 @@ PYTHONPATH=src python -m tauto.fetcher
 - `TAUTO_DB_PATH`：数据库路径（默认 `candles.db`）
 - `TAUTO_FETCH_LIMIT`：每轮拉取数量（默认 `300`）
 - `TAUTO_FETCH_INTERVAL`：每轮拉取间隔秒数（默认 `15`）
-- `TAUTO_FETCH_QPS`：全局 QPS 上限（默认 `10`，每个周期拉取之间都会等待以控制 QPS）
+- `TAUTO_FETCH_QPS`：全局 QPS 上限（默认 `20`，每个周期拉取之间都会等待以控制 QPS）
 
 ## 说明
 

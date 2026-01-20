@@ -29,12 +29,19 @@ SUPPORTED_BARS = {
     "4H": "4H",
     "6h": "6H",
     "6H": "6H",
-    "8h": "8H",
-    "8H": "8H",
     "12h": "12H",
     "12H": "12H",
     "1d": "1D",
     "1D": "1D",
+    "2d": "2D",
+    "2D": "2D",
+    "3d": "3D",
+    "3D": "3D",
+    "1w": "1W",
+    "1W": "1W",
+    "1M": "1M",
+    "3m": "3M",
+    "3M": "3M",
 }
 
 DEFAULT_INST_ID = os.getenv("TAUTO_INST_ID", "BTC-USDT")

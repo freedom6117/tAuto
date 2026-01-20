@@ -21,7 +21,7 @@ DEFAULT_INST_IDS = [
 DEFAULT_DB_PATH = os.getenv("TAUTO_DB_PATH", "candles.db")
 DEFAULT_LIMIT = int(os.getenv("TAUTO_FETCH_LIMIT", "300"))
 DEFAULT_INTERVAL = float(os.getenv("TAUTO_FETCH_INTERVAL", "15"))
-DEFAULT_QPS = float(os.getenv("TAUTO_FETCH_QPS", "10"))
+DEFAULT_QPS = float(os.getenv("TAUTO_FETCH_QPS", "20"))
 DEFAULT_BACKFILL_DAYS = int(os.getenv("TAUTO_BACKFILL_DAYS_PER_CYCLE", "3"))
 DEFAULT_BARS = [
     "1m",
@@ -32,9 +32,13 @@ DEFAULT_BARS = [
     "2H",
     "4H",
     "6H",
-    "8H",
     "12H",
     "1D",
+    "2D",
+    "3D",
+    "1W",
+    "1M",
+    "3M",
 ]
 
 
@@ -128,6 +132,10 @@ def _bar_to_milliseconds(bar: str) -> int:
         return int(bar[:-1]) * 60 * 60 * 1000
     if bar.endswith("D"):
         return int(bar[:-1]) * 24 * 60 * 60 * 1000
+    if bar.endswith("W"):
+        return int(bar[:-1]) * 7 * 24 * 60 * 60 * 1000
+    if bar.endswith("M"):
+        return int(bar[:-1]) * 30 * 24 * 60 * 60 * 1000
     raise ValueError(f"Unsupported bar format: {bar}")
 
 
@@ -175,12 +183,16 @@ def _process_backfill_queue(
                 if not missing:
                     continue
                 service.fetch_history(inst_id, day_start, day_end)
+                first_missing = min(missing)
+                last_missing = max(missing)
                 logger.info(
-                    "Backfilled %s missing candles for %s (%s) on %s",
+                    "Backfilled %s missing candles for %s (%s) on %s (missing %s - %s)",
                     len(missing),
                     inst_id,
                     bar,
                     datetime.fromtimestamp(day_start / 1000, tz=timezone.utc).date(),
+                    _format_ts(first_missing),
+                    _format_ts(last_missing),
                 )
 
 
@@ -197,6 +209,10 @@ def _find_missing_in_day(
     expected = list(range(aligned_start, aligned_end + interval_ms, interval_ms))
     existing = set(store.fetch_existing_timestamps(inst_id, bar, aligned_start, aligned_end))
     return [ts for ts in expected if ts not in existing]
+
+
+def _format_ts(ts: int) -> str:
+    return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat()
 
 
 if __name__ == "__main__":
