@@ -11,7 +11,11 @@ from .candles import CandlestickService
 from .okx import OkxClient
 from .storage import SqliteCandleStore
 
-DEFAULT_INST_ID = os.getenv("TAUTO_INST_ID", "BTC-USDT")
+DEFAULT_INST_IDS = [
+    inst.strip()
+    for inst in os.getenv("TAUTO_INST_IDS", "BTC-USDT,BTC-USDT-SWAP").split(",")
+    if inst.strip()
+]
 DEFAULT_DB_PATH = os.getenv("TAUTO_DB_PATH", "candles.db")
 DEFAULT_LIMIT = int(os.getenv("TAUTO_FETCH_LIMIT", "300"))
 DEFAULT_INTERVAL = float(os.getenv("TAUTO_FETCH_INTERVAL", "15"))
@@ -48,9 +52,10 @@ def run_fetcher() -> None:
 
     while True:
         cycle_start = time.time()
-        for bar, service in services.items():
-            _refresh_candles(service, store, DEFAULT_INST_ID, bar, DEFAULT_LIMIT)
-            time.sleep(min_interval)
+        for inst_id in DEFAULT_INST_IDS:
+            for bar, service in services.items():
+                _refresh_candles(service, store, inst_id, bar, DEFAULT_LIMIT)
+                time.sleep(min_interval)
         elapsed = time.time() - cycle_start
         time.sleep(max(0, DEFAULT_INTERVAL - elapsed))
 

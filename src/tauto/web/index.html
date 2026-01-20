@@ -156,6 +156,17 @@
           <option value="15m">15m</option>
           <option value="30m">30m</option>
           <option value="1h">1h</option>
+          <option value="2h">2h</option>
+          <option value="4h">4h</option>
+          <option value="6h">6h</option>
+          <option value="8h">8h</option>
+          <option value="12h">12h</option>
+          <option value="1d">1d</option>
+        </select>
+        <label for="instSelect">标的</label>
+        <select id="instSelect">
+          <option value="BTC-USDT">BTC-USDT</option>
+          <option value="BTC-USDT-SWAP">BTC-USDT 永续</option>
         </select>
         <div class="control-group">
           <label for="windowInput">窗口W</label>
@@ -178,6 +189,7 @@
     <script>
       const meta = document.getElementById("meta");
       const barSelect = document.getElementById("barSelect");
+      const instSelect = document.getElementById("instSelect");
       const refreshBtn = document.getElementById("refreshBtn");
       const windowInput = document.getElementById("windowInput");
       const multiplierInput = document.getElementById("multiplierInput");
@@ -292,9 +304,12 @@
         if (!totalHeight) {
           return;
         }
-        const paneHeight = Math.max(60, Math.floor(totalHeight * 0.15));
-        chart.setPaneOptions({ id: volumePaneId, height: paneHeight });
-        chart.setPaneOptions({ id: macdPaneId, height: paneHeight });
+        const candleHeight = Math.max(120, Math.floor(totalHeight * 0.6));
+        const volumeHeight = Math.max(60, Math.floor(totalHeight * 0.15));
+        const macdHeight = Math.max(60, Math.floor(totalHeight * 0.15));
+        chart.setPaneOptions({ id: candlePaneId, height: candleHeight });
+        chart.setPaneOptions({ id: volumePaneId, height: volumeHeight });
+        chart.setPaneOptions({ id: macdPaneId, height: macdHeight });
         chart.resize();
       }
 
@@ -363,13 +378,16 @@
 
       async function loadCandles() {
         const bar = barSelect.value;
+        const instId = instSelect.value;
         refreshBtn.disabled = true;
         refreshBtn.textContent = "加载中...";
         if (!chart) {
           return;
         }
         try {
-          const response = await fetch(`/api/candles?bar=${bar}`);
+          const response = await fetch(
+            `/api/candles?bar=${bar}&inst_id=${encodeURIComponent(instId)}`,
+          );
           if (!response.ok) {
             throw new Error(`请求失败：${response.status}`);
           }
@@ -398,6 +416,7 @@
       }
 
       barSelect.addEventListener("change", loadCandles);
+      instSelect.addEventListener("change", loadCandles);
       refreshBtn.addEventListener("click", loadCandles);
       windowInput.addEventListener("change", updateVolumeSpikeIndicator);
       multiplierInput.addEventListener("change", updateVolumeSpikeIndicator);
