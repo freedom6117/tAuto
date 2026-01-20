@@ -66,7 +66,7 @@ def _refresh_candles(
     now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
     if latest is None:
         interval_ms = _bar_to_milliseconds(bar)
-        start_ts = max(_thirty_days_ago(now_ts), now_ts - (limit * interval_ms))
+        start_ts = max(_three_months_ago(now_ts), now_ts - (limit * interval_ms))
         fetched = service.fetch_history(inst_id, start_ts, now_ts)
         logging.getLogger(__name__).info(
             "Fetched %s historical candles for %s (%s)",

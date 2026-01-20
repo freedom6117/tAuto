@@ -191,6 +191,12 @@
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
       } else {
+        chart.setStyles({
+          grid: {
+            horizontal: { show: true, color: "#d0d7de", size: 1, style: "solid" },
+            vertical: { show: true, color: "#d0d7de", size: 1, style: "solid" },
+          },
+        });
         klinecharts.registerIndicator({
           name: "VOL_SPIKE",
           shortName: "VOL异常",
