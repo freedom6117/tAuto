@@ -56,7 +56,12 @@ def run_fetcher() -> None:
         service.initialize()
         services[bar] = service
     min_interval = 1 / max(DEFAULT_QPS, 1)
-    day_queue = _build_day_queue(int(datetime.now(timezone.utc).timestamp() * 1000))
+    day_queue = _build_missing_day_queue(
+        store,
+        DEFAULT_INST_IDS,
+        services,
+        int(datetime.now(timezone.utc).timestamp() * 1000),
+    )
 
     while True:
         cycle_start = time.time()
@@ -157,6 +162,22 @@ def _build_day_queue(now_ts: int) -> Deque[Tuple[int, int]]:
     return days
 
 
+def _build_missing_day_queue(
+    store: SqliteCandleStore,
+    inst_ids: Iterable[str],
+    services: dict[str, CandlestickService],
+    now_ts: int,
+) -> Deque[Tuple[int, int]]:
+    logger = logging.getLogger(__name__)
+    day_queue = deque()
+    for day_start, day_end in _build_day_queue(now_ts):
+        if _day_has_missing(store, inst_ids, services, day_start, day_end):
+            day_queue.append((day_start, day_end))
+    if not day_queue:
+        logger.info("No missing candles detected in the last 3 months window.")
+    return day_queue
+
+
 def _day_start_ts(ts: int) -> int:
     dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
     day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -171,7 +192,14 @@ def _process_backfill_queue(
     days_per_cycle: int,
 ) -> None:
     if not day_queue:
-        day_queue.extend(_build_day_queue(int(datetime.now(timezone.utc).timestamp() * 1000)))
+        day_queue.extend(
+            _build_missing_day_queue(
+                store,
+                inst_ids,
+                services,
+                int(datetime.now(timezone.utc).timestamp() * 1000),
+            )
+        )
     if days_per_cycle <= 0:
         return
     logger = logging.getLogger(__name__)
@@ -209,6 +237,20 @@ def _find_missing_in_day(
     expected = list(range(aligned_start, aligned_end + interval_ms, interval_ms))
     existing = set(store.fetch_existing_timestamps(inst_id, bar, aligned_start, aligned_end))
     return [ts for ts in expected if ts not in existing]
+
+
+def _day_has_missing(
+    store: SqliteCandleStore,
+    inst_ids: Iterable[str],
+    services: dict[str, CandlestickService],
+    day_start: int,
+    day_end: int,
+) -> bool:
+    for inst_id in inst_ids:
+        for bar in services:
+            if _find_missing_in_day(store, inst_id, bar, day_start, day_end):
+                return True
+    return False
 
 
 def _format_ts(ts: int) -> str:
