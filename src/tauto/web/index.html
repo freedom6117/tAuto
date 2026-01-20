@@ -35,6 +35,7 @@
       }
 
       select,
+      input,
       button {
         background: #0d1117;
         color: #e6edf3;
@@ -46,6 +47,21 @@
 
       button {
         cursor: pointer;
+      }
+
+      .control-group {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .control-group label {
+        font-size: 13px;
+        color: #c9d1d9;
+      }
+
+      .control-group input {
+        width: 72px;
       }
 
       .content {
@@ -76,6 +92,14 @@
           <option value="30m">30m</option>
           <option value="1h">1h</option>
         </select>
+        <div class="control-group">
+          <label for="windowInput">窗口W</label>
+          <input id="windowInput" type="number" min="1" step="1" value="60" />
+        </div>
+        <div class="control-group">
+          <label for="multiplierInput">倍数N</label>
+          <input id="multiplierInput" type="number" min="1" step="0.1" value="5" />
+        </div>
         <button id="refreshBtn" type="button">刷新</button>
       </div>
     </header>
@@ -89,11 +113,83 @@
       const meta = document.getElementById("meta");
       const barSelect = document.getElementById("barSelect");
       const refreshBtn = document.getElementById("refreshBtn");
+      const windowInput = document.getElementById("windowInput");
+      const multiplierInput = document.getElementById("multiplierInput");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
+      const candlePaneId = "candle_pane";
+      const volumePaneId = "volume_pane";
+      const macdPaneId = "macd_pane";
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
       } else {
-        chart.createIndicator("MA", false, { id: "candle_pane" });
+        klinecharts.registerIndicator({
+          name: "VOL_SPIKE",
+          shortName: "VOL异常",
+          series: klinecharts.IndicatorSeries.Volume,
+          calcParams: [60, 5],
+          figures: [
+            {
+              key: "spike",
+              title: "异常: ",
+              type: "circle",
+            },
+          ],
+          styles: {
+            circles: [
+              {
+                color: "#f85149",
+                borderColor: "#ff7b72",
+                borderSize: 1,
+                size: 4,
+              },
+            ],
+          },
+          calc: (dataList, indicator) => {
+            const windowSize = Math.max(1, Math.floor(indicator.calcParams[0]));
+            const multiplier = Number(indicator.calcParams[1]);
+            const buffer = [];
+            let sum = 0;
+            return dataList.map((item) => {
+              const volume = Number(item.volume) || 0;
+              buffer.push(volume);
+              sum += volume;
+              if (buffer.length > windowSize) {
+                sum -= buffer.shift();
+              }
+              const mean = buffer.length ? sum / buffer.length : 0;
+              const spike = mean > 0 && volume > mean * multiplier ? volume : null;
+              return { spike };
+            });
+          },
+        });
+
+        chart.createIndicator("MA", false, { id: candlePaneId });
+        chart.createIndicator("VOL", false, { id: volumePaneId, height: 120 });
+        chart.createIndicator("VOL_SPIKE", true, { id: volumePaneId });
+        chart.createIndicator("MACD", false, { id: macdPaneId, height: 160 });
+      }
+
+      function getWindowSize() {
+        const value = Math.floor(Number(windowInput.value));
+        return Number.isFinite(value) && value > 0 ? value : 60;
+      }
+
+      function getMultiplier() {
+        const value = Number(multiplierInput.value);
+        return Number.isFinite(value) && value > 0 ? value : 5;
+      }
+
+      function updateVolumeSpikeIndicator() {
+        if (!chart) {
+          return;
+        }
+        chart.overrideIndicator(
+          {
+            name: "VOL_SPIKE",
+            calcParams: [getWindowSize(), getMultiplier()],
+          },
+          volumePaneId,
+        );
       }
 
       async function loadCandles() {
@@ -119,6 +215,7 @@
             volume: Number(item.volume),
           }));
           chart.applyNewData(data);
+          updateVolumeSpikeIndicator();
           meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${payload.count}`;
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
@@ -130,6 +227,8 @@
 
       barSelect.addEventListener("change", loadCandles);
       refreshBtn.addEventListener("click", loadCandles);
+      windowInput.addEventListener("change", updateVolumeSpikeIndicator);
+      multiplierInput.addEventListener("change", updateVolumeSpikeIndicator);
 
       loadCandles();
       setInterval(loadCandles, 15000);
