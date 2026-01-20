@@ -5,11 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TAuto K 线图</title>
     <style>
+      :root {
+        --bg: #0e1117;
+        --panel: #161b22;
+        --panel-border: #30363d;
+        --text-primary: #e6edf3;
+        --text-muted: #8b949e;
+        --control-bg: #0d1117;
+        --control-text: #e6edf3;
+        --control-border: #30363d;
+        --pane-border: #30363d;
+        --tooltip-bg: rgba(13, 17, 23, 0.9);
+        --tooltip-border: #f5d90a;
+        --tooltip-text: #f5f5f5;
+      }
+
+      [data-theme="light"] {
+        --bg: #f6f8fa;
+        --panel: #ffffff;
+        --panel-border: #d0d7de;
+        --text-primary: #1f2328;
+        --text-muted: #57606a;
+        --control-bg: #ffffff;
+        --control-text: #1f2328;
+        --control-border: #d0d7de;
+        --pane-border: #d0d7de;
+        --tooltip-bg: rgba(255, 255, 255, 0.95);
+        --tooltip-border: #f5d90a;
+        --tooltip-text: #1f2328;
+      }
+
       body {
         margin: 0;
         font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
-        background: #0e1117;
-        color: #e6edf3;
+        background: var(--bg);
+        color: var(--text-primary);
       }
 
       header {
@@ -17,8 +47,8 @@
         display: flex;
         align-items: center;
         gap: 16px;
-        background: #161b22;
-        border-bottom: 1px solid #30363d;
+        background: var(--panel);
+        border-bottom: 1px solid var(--panel-border);
       }
 
       h1 {
@@ -37,9 +67,9 @@
       select,
       input,
       button {
-        background: #0d1117;
-        color: #e6edf3;
-        border: 1px solid #30363d;
+        background: var(--control-bg);
+        color: var(--control-text);
+        border: 1px solid var(--control-border);
         border-radius: 6px;
         padding: 6px 10px;
         font-size: 14px;
@@ -57,7 +87,7 @@
 
       .control-group label {
         font-size: 13px;
-        color: #c9d1d9;
+        color: var(--text-muted);
       }
 
       .control-group input {
@@ -70,13 +100,35 @@
 
       #chart {
         width: 100%;
-        height: 600px;
+        height: 720px;
+        position: relative;
       }
 
       .meta {
         margin-top: 12px;
         font-size: 13px;
-        color: #8b949e;
+        color: var(--text-muted);
+      }
+
+      .pane-border {
+        border: 1px solid var(--pane-border);
+        box-sizing: border-box;
+      }
+
+      .volume-tooltip {
+        position: absolute;
+        z-index: 20;
+        background: var(--tooltip-bg);
+        color: var(--tooltip-text);
+        border: 1px solid var(--tooltip-border);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+        pointer-events: none;
+        white-space: nowrap;
+        opacity: 0;
+        transform: translate(-50%, -100%);
+        transition: opacity 0.15s ease;
       }
     </style>
   </head>
@@ -100,6 +152,8 @@
           <label for="multiplierInput">倍数N</label>
           <input id="multiplierInput" type="number" min="1" step="0.1" value="5" />
         </div>
+        <button id="themeToggle" type="button">明亮模式</button>
+        <button id="crosshairToggle" type="button">隐藏坐标线</button>
         <button id="refreshBtn" type="button">刷新</button>
       </div>
     </header>
@@ -115,10 +169,15 @@
       const refreshBtn = document.getElementById("refreshBtn");
       const windowInput = document.getElementById("windowInput");
       const multiplierInput = document.getElementById("multiplierInput");
+      const themeToggle = document.getElementById("themeToggle");
+      const crosshairToggle = document.getElementById("crosshairToggle");
+      const chartContainer = document.getElementById("chart");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
       const candlePaneId = "candle_pane";
       const volumePaneId = "volume_pane";
       const macdPaneId = "macd_pane";
+      let crosshairVisible = true;
+      let currentTheme = "dark";
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
       } else {
@@ -137,10 +196,10 @@
           styles: {
             circles: [
               {
-                color: "#f85149",
-                borderColor: "#ff7b72",
-                borderSize: 1,
-                size: 4,
+                color: "#f5d90a",
+                borderColor: "#fff7a8",
+                borderSize: 2,
+                size: 6,
               },
             ],
           },
@@ -158,15 +217,20 @@
               }
               const mean = buffer.length ? sum / buffer.length : 0;
               const spike = mean > 0 && volume > mean * multiplier ? volume : null;
-              return { spike };
+              return {
+                spike,
+                avgVolume: mean,
+                currentVolume: volume,
+                multiple: mean > 0 ? volume / mean : null,
+              };
             });
           },
         });
 
         chart.createIndicator("MA", false, { id: candlePaneId });
-        chart.createIndicator("VOL", false, { id: volumePaneId, height: 120 });
+        chart.createIndicator("VOL", false, { id: volumePaneId, height: 72 });
         chart.createIndicator("VOL_SPIKE", true, { id: volumePaneId });
-        chart.createIndicator("MACD", false, { id: macdPaneId, height: 160 });
+        chart.createIndicator("MACD", false, { id: macdPaneId, height: 72 });
       }
 
       function getWindowSize() {
@@ -190,6 +254,96 @@
           },
           volumePaneId,
         );
+      }
+
+      function applyPaneBorders() {
+        if (!chart) {
+          return;
+        }
+        [candlePaneId, volumePaneId, macdPaneId].forEach((paneId) => {
+          const paneRoot = chart.getDom(paneId, klinecharts.DomPosition.Root);
+          if (paneRoot) {
+            paneRoot.classList.add("pane-border");
+          }
+        });
+      }
+
+      function setTheme(theme) {
+        currentTheme = theme;
+        document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+        themeToggle.textContent = theme === "light" ? "暗黑模式" : "明亮模式";
+      }
+
+      function setCrosshairVisibility(show) {
+        if (!chart) {
+          return;
+        }
+        crosshairVisible = show;
+        crosshairToggle.textContent = show ? "隐藏坐标线" : "显示坐标线";
+        chart.setStyles({
+          crosshair: {
+            show,
+            horizontal: { show },
+            vertical: { show },
+          },
+        });
+      }
+
+      function formatNumber(value) {
+        if (!Number.isFinite(value)) {
+          return "--";
+        }
+        return Number(value).toLocaleString(undefined, {
+          maximumFractionDigits: 2,
+        });
+      }
+
+      function createVolumeTooltip() {
+        const tooltip = document.createElement("div");
+        tooltip.className = "volume-tooltip";
+        chartContainer.appendChild(tooltip);
+        return tooltip;
+      }
+
+      const volumeTooltip = chart ? createVolumeTooltip() : null;
+
+      function updateVolumeTooltip(payload) {
+        if (!chart || !volumeTooltip) {
+          return;
+        }
+        const dataIndex = payload?.dataIndex;
+        if (dataIndex === null || dataIndex === undefined) {
+          volumeTooltip.style.opacity = 0;
+          return;
+        }
+        const dataList = chart.getDataList();
+        const item = dataList[dataIndex];
+        if (!item) {
+          volumeTooltip.style.opacity = 0;
+          return;
+        }
+        const windowSize = getWindowSize();
+        const startIndex = Math.max(0, dataIndex - windowSize + 1);
+        const windowSlice = dataList.slice(startIndex, dataIndex + 1);
+        const sum = windowSlice.reduce((acc, row) => acc + (Number(row.volume) || 0), 0);
+        const mean = windowSlice.length ? sum / windowSlice.length : 0;
+        const volume = Number(item.volume) || 0;
+        const multiple = mean > 0 ? volume / mean : null;
+        const threshold = mean * getMultiplier();
+        if (mean <= 0 || volume <= threshold) {
+          volumeTooltip.style.opacity = 0;
+          return;
+        }
+        volumeTooltip.innerHTML = [
+          `均值VOL：${formatNumber(mean)}`,
+          `当前VOL：${formatNumber(volume)}`,
+          `倍数：${formatNumber(multiple)}`,
+        ].join("<br />");
+        const x = payload?.x ?? 0;
+        const y = payload?.y ?? 0;
+        volumeTooltip.style.left = `${x}px`;
+        volumeTooltip.style.top = `${y}px`;
+        volumeTooltip.style.opacity = 1;
       }
 
       async function loadCandles() {
@@ -216,6 +370,7 @@
           }));
           chart.applyNewData(data);
           updateVolumeSpikeIndicator();
+          applyPaneBorders();
           meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${payload.count}`;
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
@@ -229,7 +384,21 @@
       refreshBtn.addEventListener("click", loadCandles);
       windowInput.addEventListener("change", updateVolumeSpikeIndicator);
       multiplierInput.addEventListener("change", updateVolumeSpikeIndicator);
+      themeToggle.addEventListener("click", () => {
+        setTheme(currentTheme === "light" ? "dark" : "light");
+      });
+      crosshairToggle.addEventListener("click", () => {
+        setCrosshairVisibility(!crosshairVisible);
+      });
 
+      if (chart) {
+        chart.subscribeAction(klinecharts.ActionType.OnCrosshairChange, (payload) => {
+          updateVolumeTooltip(payload);
+        });
+      }
+
+      setTheme("dark");
+      setCrosshairVisibility(true);
       loadCandles();
       setInterval(loadCandles, 15000);
     </script>
