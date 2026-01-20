@@ -29,12 +29,19 @@ SUPPORTED_BARS = {
     "4H": "4H",
     "6h": "6H",
     "6H": "6H",
-    "8h": "8H",
-    "8H": "8H",
     "12h": "12H",
     "12H": "12H",
     "1d": "1D",
     "1D": "1D",
+    "2d": "2D",
+    "2D": "2D",
+    "3d": "3D",
+    "3D": "3D",
+    "1w": "1W",
+    "1W": "1W",
+    "1M": "1M",
+    "3m": "3M",
+    "3M": "3M",
 }
 
 DEFAULT_INST_ID = os.getenv("TAUTO_INST_ID", "BTC-USDT")
@@ -66,12 +73,16 @@ def index() -> HTMLResponse:
 def get_candles(
     inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
     bar: str = Query("1m", description="Candlestick bar"),
-    limit: int = Query(300, ge=10, le=2000),
+    limit: Optional[int] = Query(300, ge=10, le=2000),
+    all_data: bool = Query(
+        False, description="Return all candles for the selected bar when true."
+    ),
 ) -> dict:
     normalized = SUPPORTED_BARS.get(bar)
     if normalized is None:
         raise HTTPException(status_code=400, detail="Unsupported bar interval")
-    candles = store.fetch_candles(inst_id, normalized, limit=limit)
+    resolved_limit = None if all_data else limit
+    candles = store.fetch_candles(inst_id, normalized, limit=resolved_limit)
     payload = [_to_kline_payload(candle) for candle in candles]
     return {"instId": inst_id, "bar": bar, "count": len(payload), "data": payload}
 

@@ -56,11 +56,22 @@ class CandlestickService:
     def initialize(self) -> None:
         self.store.initialize()
 
-    def fetch_realtime(self, inst_id: str, limit: int = 1) -> List[CandleStick]:
+    def fetch_realtime(
+        self,
+        inst_id: str,
+        limit: int = 1,
+        latest_ts: Optional[int] = None,
+    ) -> List[CandleStick]:
         """Fetch latest candles with realtime rate limiting."""
 
         self.realtime_limiter.acquire()
-        data = self.client.get_candlesticks(inst_id=inst_id, bar=self.bar, limit=limit)
+        before = str(latest_ts) if latest_ts else None
+        data = self.client.get_candlesticks(
+            inst_id=inst_id,
+            bar=self.bar,
+            limit=limit,
+            before=before,
+        )
         candles = [self._parse_candle(inst_id, row) for row in data]
         self.store.upsert_candles(candles)
         return candles
@@ -74,15 +85,15 @@ class CandlestickService:
         """Fetch historical candles between timestamps."""
 
         all_candles: List[CandleStick] = []
-        cursor: Optional[int] = None
-        while True:
+        cursor: Optional[int] = end_ts + 1
+        while cursor is not None and cursor > start_ts:
             self.history_limiter.acquire()
-            before = str(cursor) if cursor else None
             data = self.client.get_candlesticks(
                 inst_id=inst_id,
                 bar=self.bar,
                 limit=self.history_limit,
-                before=before,
+                after=str(cursor),
+                use_history=True,
             )
             if not data:
                 break
@@ -92,10 +103,11 @@ class CandlestickService:
                 for candle in candles
                 if start_ts <= candle.ts <= end_ts
             ]
-            all_candles.extend(filtered)
-            self.store.upsert_candles(filtered)
+            if filtered:
+                self.store.upsert_candles(filtered)
+                all_candles.extend(filtered)
             oldest = min(candle.ts for candle in candles)
-            if oldest <= start_ts:
+            if oldest >= cursor:
                 break
             cursor = oldest
         return all_candles
@@ -165,6 +177,10 @@ def _bar_to_milliseconds(bar: str) -> int:
         return int(bar[:-1]) * 60 * 60 * 1000
     if bar.endswith("D"):
         return int(bar[:-1]) * 24 * 60 * 60 * 1000
+    if bar.endswith("W"):
+        return int(bar[:-1]) * 7 * 24 * 60 * 60 * 1000
+    if bar.endswith("M"):
+        return int(bar[:-1]) * 30 * 24 * 60 * 60 * 1000
     raise ValueError(f"Unsupported bar format: {bar}")
 
 

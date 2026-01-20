@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections import deque
 from datetime import datetime, timezone
+from typing import Deque, Iterable, Tuple
 
 from .candles import CandlestickService
 from .okx import OkxClient
@@ -20,6 +22,7 @@ DEFAULT_DB_PATH = os.getenv("TAUTO_DB_PATH", "candles.db")
 DEFAULT_LIMIT = int(os.getenv("TAUTO_FETCH_LIMIT", "300"))
 DEFAULT_INTERVAL = float(os.getenv("TAUTO_FETCH_INTERVAL", "15"))
 DEFAULT_QPS = float(os.getenv("TAUTO_FETCH_QPS", "10"))
+DEFAULT_BACKFILL_DAYS = int(os.getenv("TAUTO_BACKFILL_DAYS_PER_CYCLE", "3"))
 DEFAULT_BARS = [
     "1m",
     "5m",
@@ -29,9 +32,13 @@ DEFAULT_BARS = [
     "2H",
     "4H",
     "6H",
-    "8H",
     "12H",
     "1D",
+    "2D",
+    "3D",
+    "1W",
+    "1M",
+    "3M",
 ]
 
 
@@ -49,13 +56,34 @@ def run_fetcher() -> None:
         service.initialize()
         services[bar] = service
     min_interval = 1 / max(DEFAULT_QPS, 1)
+    day_queue = _build_missing_day_queue(
+        store,
+        DEFAULT_INST_IDS,
+        services,
+        int(datetime.now(timezone.utc).timestamp() * 1000),
+    )
 
     while True:
         cycle_start = time.time()
         for inst_id in DEFAULT_INST_IDS:
             for bar, service in services.items():
-                _refresh_candles(service, store, inst_id, bar, DEFAULT_LIMIT)
+                try:
+                    _refresh_candles(service, store, inst_id, bar, DEFAULT_LIMIT)
+                except Exception:  # noqa: BLE001 - keep fetcher alive on transient failures
+                    logging.getLogger(__name__).exception(
+                        "Failed to refresh candles for %s (%s)", inst_id, bar
+                    )
                 time.sleep(min_interval)
+        try:
+            _process_backfill_queue(
+                day_queue,
+                services,
+                store,
+                DEFAULT_INST_IDS,
+                DEFAULT_BACKFILL_DAYS,
+            )
+        except Exception:  # noqa: BLE001 - keep fetcher alive on transient failures
+            logging.getLogger(__name__).exception("Failed to process backfill queue")
         elapsed = time.time() - cycle_start
         time.sleep(max(0, DEFAULT_INTERVAL - elapsed))
 
@@ -81,7 +109,7 @@ def _refresh_candles(
         )
         return
 
-    realtime = service.fetch_realtime(inst_id, limit=1)
+    realtime = service.fetch_realtime(inst_id, limit=1, latest_ts=latest)
     logging.getLogger(__name__).info(
         "Fetched %s realtime candles for %s (%s)",
         len(realtime),
@@ -117,11 +145,124 @@ def _bar_to_milliseconds(bar: str) -> int:
         return int(bar[:-1]) * 60 * 60 * 1000
     if bar.endswith("D"):
         return int(bar[:-1]) * 24 * 60 * 60 * 1000
+    if bar.endswith("W"):
+        return int(bar[:-1]) * 7 * 24 * 60 * 60 * 1000
+    if bar.endswith("M"):
+        return int(bar[:-1]) * 30 * 24 * 60 * 60 * 1000
     raise ValueError(f"Unsupported bar format: {bar}")
 
 
 def _three_months_ago(now_ts: int) -> int:
     return now_ts - (90 * 24 * 60 * 60 * 1000)
+
+
+def _build_day_queue(now_ts: int) -> Deque[Tuple[int, int]]:
+    day_ms = 24 * 60 * 60 * 1000
+    start_ts = _three_months_ago(now_ts)
+    end_day_start = _day_start_ts(now_ts)
+    start_day_start = _day_start_ts(start_ts)
+    days = deque()
+    current = end_day_start
+    while current >= start_day_start:
+        day_end = min(current + day_ms - 1, now_ts)
+        days.append((current, day_end))
+        current -= day_ms
+    return days
+
+
+def _build_missing_day_queue(
+    store: SqliteCandleStore,
+    inst_ids: Iterable[str],
+    services: dict[str, CandlestickService],
+    now_ts: int,
+) -> Deque[Tuple[int, int]]:
+    logger = logging.getLogger(__name__)
+    day_queue = deque()
+    for day_start, day_end in _build_day_queue(now_ts):
+        if _day_has_missing(store, inst_ids, services, day_start, day_end):
+            day_queue.append((day_start, day_end))
+    if not day_queue:
+        logger.info("No missing candles detected in the last 3 months window.")
+    return day_queue
+
+
+def _day_start_ts(ts: int) -> int:
+    dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+    day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(day_start.timestamp() * 1000)
+
+
+def _process_backfill_queue(
+    day_queue: Deque[Tuple[int, int]],
+    services: dict[str, CandlestickService],
+    store: SqliteCandleStore,
+    inst_ids: Iterable[str],
+    days_per_cycle: int,
+) -> None:
+    if not day_queue:
+        day_queue.extend(
+            _build_missing_day_queue(
+                store,
+                inst_ids,
+                services,
+                int(datetime.now(timezone.utc).timestamp() * 1000),
+            )
+        )
+    if days_per_cycle <= 0:
+        return
+    logger = logging.getLogger(__name__)
+    for _ in range(min(days_per_cycle, len(day_queue))):
+        day_start, day_end = day_queue.popleft()
+        for inst_id in inst_ids:
+            for bar, service in services.items():
+                missing = _find_missing_in_day(store, inst_id, bar, day_start, day_end)
+                if not missing:
+                    continue
+                service.fetch_history(inst_id, day_start, day_end)
+                first_missing = min(missing)
+                last_missing = max(missing)
+                logger.info(
+                    "Backfilled %s missing candles for %s (%s) on %s (missing %s - %s)",
+                    len(missing),
+                    inst_id,
+                    bar,
+                    datetime.fromtimestamp(day_start / 1000, tz=timezone.utc).date(),
+                    _format_ts(first_missing),
+                    _format_ts(last_missing),
+                )
+
+
+def _find_missing_in_day(
+    store: SqliteCandleStore,
+    inst_id: str,
+    bar: str,
+    day_start: int,
+    day_end: int,
+) -> list[int]:
+    interval_ms = _bar_to_milliseconds(bar)
+    aligned_start = day_start - (day_start % interval_ms)
+    aligned_end = day_end - (day_end % interval_ms)
+    expected = list(range(aligned_start, aligned_end + interval_ms, interval_ms))
+    existing = set(store.fetch_existing_timestamps(inst_id, bar, aligned_start, aligned_end))
+    return [ts for ts in expected if ts not in existing]
+
+
+def _day_has_missing(
+    store: SqliteCandleStore,
+    inst_ids: Iterable[str],
+    services: dict[str, CandlestickService],
+    day_start: int,
+    day_end: int,
+) -> bool:
+    for inst_id in inst_ids:
+        for bar in services:
+            if _find_missing_in_day(store, inst_id, bar, day_start, day_end):
+                return True
+    return False
+
+
+def _format_ts(ts: int) -> str:
+    return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat()
 
 
 if __name__ == "__main__":
