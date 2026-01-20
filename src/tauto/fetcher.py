@@ -67,15 +67,23 @@ def run_fetcher() -> None:
         cycle_start = time.time()
         for inst_id in DEFAULT_INST_IDS:
             for bar, service in services.items():
-                _refresh_candles(service, store, inst_id, bar, DEFAULT_LIMIT)
+                try:
+                    _refresh_candles(service, store, inst_id, bar, DEFAULT_LIMIT)
+                except Exception:  # noqa: BLE001 - keep fetcher alive on transient failures
+                    logging.getLogger(__name__).exception(
+                        "Failed to refresh candles for %s (%s)", inst_id, bar
+                    )
                 time.sleep(min_interval)
-        _process_backfill_queue(
-            day_queue,
-            services,
-            store,
-            DEFAULT_INST_IDS,
-            DEFAULT_BACKFILL_DAYS,
-        )
+        try:
+            _process_backfill_queue(
+                day_queue,
+                services,
+                store,
+                DEFAULT_INST_IDS,
+                DEFAULT_BACKFILL_DAYS,
+            )
+        except Exception:  # noqa: BLE001 - keep fetcher alive on transient failures
+            logging.getLogger(__name__).exception("Failed to process backfill queue")
         elapsed = time.time() - cycle_start
         time.sleep(max(0, DEFAULT_INTERVAL - elapsed))
 
