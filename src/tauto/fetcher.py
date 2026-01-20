@@ -109,7 +109,7 @@ def _refresh_candles(
         )
         return
 
-    realtime = service.fetch_realtime(inst_id, limit=1)
+    realtime = service.fetch_realtime(inst_id, limit=1, latest_ts=latest)
     logging.getLogger(__name__).info(
         "Fetched %s realtime candles for %s (%s)",
         len(realtime),
