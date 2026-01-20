@@ -5,11 +5,49 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TAuto K 线图</title>
     <style>
+      :root {
+        --bg: #0e1117;
+        --panel: #161b22;
+        --panel-border: #30363d;
+        --text-primary: #e6edf3;
+        --text-muted: #8b949e;
+        --control-bg: #0d1117;
+        --control-text: #e6edf3;
+        --control-border: #30363d;
+        --pane-border: #30363d;
+        --tooltip-bg: rgba(13, 17, 23, 0.9);
+        --tooltip-border: #f5d90a;
+        --tooltip-text: #f5f5f5;
+      }
+
+      [data-theme="light"] {
+        --bg: #f6f8fa;
+        --panel: #ffffff;
+        --panel-border: #d0d7de;
+        --text-primary: #1f2328;
+        --text-muted: #57606a;
+        --control-bg: #ffffff;
+        --control-text: #1f2328;
+        --control-border: #d0d7de;
+        --pane-border: #d0d7de;
+        --tooltip-bg: rgba(255, 255, 255, 0.95);
+        --tooltip-border: #f5d90a;
+        --tooltip-text: #1f2328;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
       body {
         margin: 0;
         font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
-        background: #0e1117;
-        color: #e6edf3;
+        background: var(--bg);
+        color: var(--text-primary);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
 
       header {
@@ -17,8 +55,8 @@
         display: flex;
         align-items: center;
         gap: 16px;
-        background: #161b22;
-        border-bottom: 1px solid #30363d;
+        background: var(--panel);
+        border-bottom: 1px solid var(--panel-border);
       }
 
       h1 {
@@ -35,10 +73,11 @@
       }
 
       select,
+      input,
       button {
-        background: #0d1117;
-        color: #e6edf3;
-        border: 1px solid #30363d;
+        background: var(--control-bg);
+        color: var(--control-text);
+        border: 1px solid var(--control-border);
         border-radius: 6px;
         padding: 6px 10px;
         font-size: 14px;
@@ -48,19 +87,64 @@
         cursor: pointer;
       }
 
+      .control-group {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .control-group label {
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+
+      .control-group input {
+        width: 72px;
+      }
+
       .content {
-        padding: 16px 24px 32px;
+        padding: 16px 24px;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        position: relative;
+        min-height: 0;
       }
 
       #chart {
         width: 100%;
-        height: 600px;
+        flex: 1;
+        position: relative;
+        height: 100%;
       }
 
       .meta {
-        margin-top: 12px;
         font-size: 13px;
-        color: #8b949e;
+        color: var(--text-muted);
+        position: absolute;
+        right: 24px;
+        bottom: 12px;
+      }
+
+      .pane-border {
+        border: 1px solid var(--pane-border);
+        box-sizing: border-box;
+      }
+
+      .volume-tooltip {
+        position: absolute;
+        z-index: 20;
+        background: var(--tooltip-bg);
+        color: var(--tooltip-text);
+        border: 1px solid var(--tooltip-border);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+        pointer-events: none;
+        white-space: nowrap;
+        opacity: 0;
+        transform: translate(-50%, -100%);
+        transition: opacity 0.15s ease;
       }
     </style>
   </head>
@@ -75,7 +159,27 @@
           <option value="15m">15m</option>
           <option value="30m">30m</option>
           <option value="1h">1h</option>
+          <option value="2h">2h</option>
+          <option value="4h">4h</option>
+          <option value="6h">6h</option>
+          <option value="8h">8h</option>
+          <option value="12h">12h</option>
+          <option value="1d">1d</option>
         </select>
+        <label for="instSelect">标的</label>
+        <select id="instSelect">
+          <option value="BTC-USDT">BTC-USDT</option>
+          <option value="BTC-USDT-SWAP">BTC-USDT 永续</option>
+        </select>
+        <div class="control-group">
+          <label for="windowInput">窗口W</label>
+          <input id="windowInput" type="number" min="1" step="1" value="60" />
+        </div>
+        <div class="control-group">
+          <label for="multiplierInput">倍数N</label>
+          <input id="multiplierInput" type="number" min="1" step="0.1" value="5" />
+        </div>
+        <button id="themeToggle" type="button">明亮模式</button>
         <button id="refreshBtn" type="button">刷新</button>
       </div>
     </header>
@@ -88,23 +192,217 @@
     <script>
       const meta = document.getElementById("meta");
       const barSelect = document.getElementById("barSelect");
+      const instSelect = document.getElementById("instSelect");
       const refreshBtn = document.getElementById("refreshBtn");
+      const windowInput = document.getElementById("windowInput");
+      const multiplierInput = document.getElementById("multiplierInput");
+      const themeToggle = document.getElementById("themeToggle");
+      const chartContainer = document.getElementById("chart");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
+      const candlePaneId = "candle_pane";
+      const volumePaneId = "volume_pane";
+      const macdPaneId = "macd_pane";
+      let currentTheme = "dark";
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
       } else {
-        chart.createIndicator("MA", false, { id: "candle_pane" });
+        chart.setStyles({
+          grid: {
+            horizontal: { show: true, color: "#d0d7de", size: 1, style: "solid" },
+            vertical: { show: true, color: "#d0d7de", size: 1, style: "solid" },
+          },
+        });
+        klinecharts.registerIndicator({
+          name: "VOL_SPIKE",
+          shortName: "VOL异常",
+          series: klinecharts.IndicatorSeries.Volume,
+          calcParams: [60, 5],
+          figures: [
+            {
+              key: "spike",
+              title: "异常: ",
+              type: "circle",
+            },
+          ],
+          styles: {
+            circles: [
+              {
+                color: "#f5d90a",
+                borderColor: "#fff7a8",
+                borderSize: 2,
+                size: 6,
+              },
+            ],
+          },
+          calc: (dataList, indicator) => {
+            const windowSize = Math.max(1, Math.floor(indicator.calcParams[0]));
+            const multiplier = Number(indicator.calcParams[1]);
+            const buffer = [];
+            let sum = 0;
+            return dataList.map((item) => {
+              const volume = Number(item.volume) || 0;
+              buffer.push(volume);
+              sum += volume;
+              if (buffer.length > windowSize) {
+                sum -= buffer.shift();
+              }
+              const mean = buffer.length ? sum / buffer.length : 0;
+              const spike = mean > 0 && volume > mean * multiplier ? volume : null;
+              return {
+                spike,
+                avgVolume: mean,
+                currentVolume: volume,
+                multiple: mean > 0 ? volume / mean : null,
+              };
+            });
+          },
+        });
+
+        chart.createIndicator("MA", false, { id: candlePaneId });
+        chart.createIndicator("VOL", false, { id: volumePaneId, height: 120 });
+        chart.createIndicator("VOL_SPIKE", true, { id: volumePaneId });
+        chart.createIndicator("MACD", false, { id: macdPaneId, height: 120 });
+      }
+
+      function getWindowSize() {
+        const value = Math.floor(Number(windowInput.value));
+        return Number.isFinite(value) && value > 0 ? value : 60;
+      }
+
+      function getMultiplier() {
+        const value = Number(multiplierInput.value);
+        return Number.isFinite(value) && value > 0 ? value : 5;
+      }
+
+      function setCookie(name, value) {
+        const expires = new Date();
+        expires.setDate(expires.getDate() + 30);
+        document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires.toUTCString()}; path=/`;
+      }
+
+      function getCookie(name) {
+        const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+        return match ? decodeURIComponent(match[1]) : null;
+      }
+
+      function updateVolumeSpikeIndicator() {
+        if (!chart) {
+          return;
+        }
+        chart.overrideIndicator(
+          {
+            name: "VOL_SPIKE",
+            calcParams: [getWindowSize(), getMultiplier()],
+          },
+          volumePaneId,
+        );
+      }
+
+      function applyPaneBorders() {
+        if (!chart) {
+          return;
+        }
+        [candlePaneId, volumePaneId, macdPaneId].forEach((paneId) => {
+          const paneRoot = chart.getDom(paneId, klinecharts.DomPosition.Root);
+          if (paneRoot) {
+            paneRoot.classList.add("pane-border");
+          }
+        });
+      }
+
+      function updatePaneHeights() {
+        if (!chart) {
+          return;
+        }
+        const totalHeight = chartContainer.getBoundingClientRect().height;
+        if (!totalHeight) {
+          return;
+        }
+        const candleHeight = Math.max(120, Math.floor(totalHeight * 0.6));
+        const volumeHeight = Math.max(60, Math.floor(totalHeight * 0.15));
+        const macdHeight = Math.max(60, Math.floor(totalHeight * 0.15));
+        chart.setPaneOptions({ id: candlePaneId, height: candleHeight });
+        chart.setPaneOptions({ id: volumePaneId, height: volumeHeight });
+        chart.setPaneOptions({ id: macdPaneId, height: macdHeight });
+        chart.resize();
+      }
+
+      function setTheme(theme) {
+        currentTheme = theme;
+        document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+        themeToggle.textContent = theme === "light" ? "暗黑模式" : "明亮模式";
+        setCookie("tautoTheme", currentTheme);
+      }
+
+      function formatNumber(value) {
+        if (!Number.isFinite(value)) {
+          return "--";
+        }
+        return Number(value).toLocaleString(undefined, {
+          maximumFractionDigits: 2,
+        });
+      }
+
+      function createVolumeTooltip() {
+        const tooltip = document.createElement("div");
+        tooltip.className = "volume-tooltip";
+        chartContainer.appendChild(tooltip);
+        return tooltip;
+      }
+
+      const volumeTooltip = chart ? createVolumeTooltip() : null;
+
+      function updateVolumeTooltip(payload) {
+        if (!chart || !volumeTooltip) {
+          return;
+        }
+        const dataIndex = payload?.dataIndex;
+        if (dataIndex === null || dataIndex === undefined) {
+          volumeTooltip.style.opacity = 0;
+          return;
+        }
+        const dataList = chart.getDataList();
+        const item = dataList[dataIndex];
+        if (!item) {
+          volumeTooltip.style.opacity = 0;
+          return;
+        }
+        const windowSize = getWindowSize();
+        const startIndex = Math.max(0, dataIndex - windowSize + 1);
+        const windowSlice = dataList.slice(startIndex, dataIndex + 1);
+        const sum = windowSlice.reduce((acc, row) => acc + (Number(row.volume) || 0), 0);
+        const mean = windowSlice.length ? sum / windowSlice.length : 0;
+        const volume = Number(item.volume) || 0;
+        const multiple = mean > 0 ? volume / mean : null;
+        const threshold = mean * getMultiplier();
+        if (mean <= 0 || volume <= threshold) {
+          volumeTooltip.style.opacity = 0;
+          return;
+        }
+        volumeTooltip.innerHTML = [
+          `均值VOL：${formatNumber(mean)}`,
+          `当前VOL：${formatNumber(volume)}`,
+          `倍数：${formatNumber(multiple)}`,
+        ].join("<br />");
+        const x = payload?.x ?? 0;
+        const y = payload?.y ?? 0;
+        volumeTooltip.style.left = `${x}px`;
+        volumeTooltip.style.top = `${y}px`;
+        volumeTooltip.style.opacity = 1;
       }
 
       async function loadCandles() {
         const bar = barSelect.value;
+        const instId = instSelect.value;
         refreshBtn.disabled = true;
         refreshBtn.textContent = "加载中...";
         if (!chart) {
           return;
         }
         try {
-          const response = await fetch(`/api/candles?bar=${bar}`);
+          const response = await fetch(
+            `/api/candles?bar=${bar}&inst_id=${encodeURIComponent(instId)}`,
+          );
           if (!response.ok) {
             throw new Error(`请求失败：${response.status}`);
           }
@@ -118,7 +416,11 @@
             close: Number(item.close),
             volume: Number(item.volume),
           }));
-          chart.applyNewData(data);
+          const sortedData = data.slice().sort((a, b) => a.timestamp - b.timestamp);
+          chart.applyNewData(sortedData);
+          updateVolumeSpikeIndicator();
+          applyPaneBorders();
+          updatePaneHeights();
           meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${payload.count}`;
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
@@ -129,9 +431,51 @@
       }
 
       barSelect.addEventListener("change", loadCandles);
+      barSelect.addEventListener("change", () => {
+        setCookie("tautoBar", barSelect.value);
+      });
+      instSelect.addEventListener("change", () => {
+        setCookie("tautoInst", instSelect.value);
+      });
+      instSelect.addEventListener("change", loadCandles);
       refreshBtn.addEventListener("click", loadCandles);
+      windowInput.addEventListener("change", updateVolumeSpikeIndicator);
+      windowInput.addEventListener("change", () => {
+        setCookie("tautoWindow", windowInput.value);
+      });
+      multiplierInput.addEventListener("change", updateVolumeSpikeIndicator);
+      multiplierInput.addEventListener("change", () => {
+        setCookie("tautoMultiplier", multiplierInput.value);
+      });
+      themeToggle.addEventListener("click", () => {
+        setTheme(currentTheme === "light" ? "dark" : "light");
+      });
+      if (chart) {
+        chart.subscribeAction(klinecharts.ActionType.OnCrosshairChange, (payload) => {
+          updateVolumeTooltip(payload);
+        });
+      }
 
+      const savedBar = getCookie("tautoBar");
+      if (savedBar && [...barSelect.options].some((option) => option.value === savedBar)) {
+        barSelect.value = savedBar;
+      }
+      const savedInst = getCookie("tautoInst");
+      if (savedInst && [...instSelect.options].some((option) => option.value === savedInst)) {
+        instSelect.value = savedInst;
+      }
+      const savedWindow = getCookie("tautoWindow");
+      if (savedWindow) {
+        windowInput.value = savedWindow;
+      }
+      const savedMultiplier = getCookie("tautoMultiplier");
+      if (savedMultiplier) {
+        multiplierInput.value = savedMultiplier;
+      }
+      const savedTheme = getCookie("tautoTheme") || "dark";
+      setTheme(savedTheme);
       loadCandles();
+      window.addEventListener("resize", updatePaneHeights);
       setInterval(loadCandles, 15000);
     </script>
   </body>
