@@ -212,6 +212,8 @@
       let useReversedColors = false;
       let lastTimestamp = null;
       let priceRefreshInFlight = false;
+      let historyLoadToken = 0;
+      let historyLoadInFlight = false;
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
       } else {
@@ -392,6 +394,36 @@
             },
           },
         });
+        chart.overrideIndicator(
+          {
+            name: "VOL",
+            styles: {
+              bars: [
+                {
+                  upColor,
+                  downColor,
+                  noChangeColor: upColor,
+                },
+              ],
+            },
+          },
+          volumePaneId,
+        );
+        chart.overrideIndicator(
+          {
+            name: "MACD",
+            styles: {
+              bars: [
+                {
+                  upColor,
+                  downColor,
+                  noChangeColor: upColor,
+                },
+              ],
+            },
+          },
+          macdPaneId,
+        );
         colorToggle.textContent = useReversedColors ? "恢复默认色" : "涨跌色互换";
         setCookie("tautoColorMode", useReversedColors ? "reversed" : "normal");
       }
@@ -471,10 +503,57 @@
         }
       }
 
-      async function loadCandles({ mode = "auto" } = {}) {
+      function updateMeta(payload, extraNote = "") {
+        const totalCount = chart ? chart.getDataList().length : 0;
+        const note = extraNote ? ` | ${extraNote}` : "";
+        meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${totalCount}${note}`;
+      }
+
+      async function loadRecentCandles() {
         const bar = barSelect.value;
         const instId = instSelect.value;
-        const needFull = mode === "full" || !lastTimestamp;
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "加载中...";
+        if (!chart) {
+          return;
+        }
+        try {
+          if (!lastTimestamp) {
+            await loadInitialCandles();
+            return;
+          }
+          const params = new URLSearchParams({
+            bar,
+            inst_id: instId,
+          });
+          params.set("since_ts", String(lastTimestamp));
+          const response = await fetch(`/api/candles?${params.toString()}`);
+          if (!response.ok) {
+            throw new Error(`请求失败：${response.status}`);
+          }
+          const payload = await response.json();
+          const data = normalizeCandles(payload.data);
+          const sortedData = data.slice().sort((a, b) => a.timestamp - b.timestamp);
+          if (sortedData.length > 0) {
+            sortedData.forEach((item) => {
+              chart.updateData(item);
+            });
+          }
+          updateLastTimestamp(sortedData);
+          updateMeta(payload);
+        } catch (error) {
+          meta.textContent = `加载失败：${error.message}`;
+        } finally {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "刷新";
+        }
+      }
+
+      async function loadInitialCandles() {
+        const bar = barSelect.value;
+        const instId = instSelect.value;
+        const token = ++historyLoadToken;
+        historyLoadInFlight = true;
         refreshBtn.disabled = true;
         refreshBtn.textContent = "加载中...";
         if (!chart) {
@@ -484,12 +563,8 @@
           const params = new URLSearchParams({
             bar,
             inst_id: instId,
+            limit: "300",
           });
-          if (needFull) {
-            params.set("all_data", "true");
-          } else {
-            params.set("since_ts", String(lastTimestamp));
-          }
           const response = await fetch(`/api/candles?${params.toString()}`);
           if (!response.ok) {
             throw new Error(`请求失败：${response.status}`);
@@ -497,25 +572,79 @@
           const payload = await response.json();
           const data = normalizeCandles(payload.data);
           const sortedData = data.slice().sort((a, b) => a.timestamp - b.timestamp);
-          if (needFull) {
-            chart.applyNewData(sortedData);
-            updateVolumeSpikeIndicator();
-            applyPaneBorders();
-            updatePaneHeights();
-          } else if (sortedData.length > 0) {
-            sortedData.forEach((item) => {
-              chart.updateData(item);
-            });
-          }
+          chart.applyNewData(sortedData);
+          updateVolumeSpikeIndicator();
+          applyPaneBorders();
+          updatePaneHeights();
           updateLastTimestamp(sortedData);
-          const totalCount = chart.getDataList().length;
-          meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${totalCount}`;
+          updateMeta(payload, "补全中");
+          loadFullHistory(token);
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
         } finally {
           refreshBtn.disabled = false;
           refreshBtn.textContent = "刷新";
         }
+      }
+
+      async function loadFullHistory(token) {
+        const bar = barSelect.value;
+        const instId = instSelect.value;
+        if (!chart) {
+          return;
+        }
+        try {
+          const params = new URLSearchParams({
+            bar,
+            inst_id: instId,
+            all_data: "true",
+          });
+          const response = await fetch(`/api/candles?${params.toString()}`);
+          if (!response.ok) {
+            throw new Error(`请求失败：${response.status}`);
+          }
+          if (token !== historyLoadToken) {
+            return;
+          }
+          const payload = await response.json();
+          const data = normalizeCandles(payload.data);
+          const sortedData = data.slice().sort((a, b) => a.timestamp - b.timestamp);
+          const existingCount = chart.getDataList().length;
+          const missingCount = sortedData.length - existingCount;
+          if (missingCount <= 0) {
+            updateMeta(payload);
+            historyLoadInFlight = false;
+            return;
+          }
+          const olderData = sortedData.slice(0, missingCount);
+          updateLastTimestamp(sortedData);
+          appendHistoryChunks(olderData, payload, token);
+        } catch (error) {
+          meta.textContent = `补全失败：${error.message}`;
+          historyLoadInFlight = false;
+        }
+      }
+
+      function appendHistoryChunks(olderData, payload, token) {
+        const chunkSize = 400;
+        const remaining = olderData.slice();
+        const step = () => {
+          if (!chart || token !== historyLoadToken) {
+            return;
+          }
+          if (remaining.length === 0) {
+            updateMeta(payload);
+            historyLoadInFlight = false;
+            return;
+          }
+          const startIndex = Math.max(0, remaining.length - chunkSize);
+          const chunk = remaining.slice(startIndex);
+          remaining.length = startIndex;
+          chart.applyMoreData(chunk);
+          updateMeta(payload, "补全中");
+          setTimeout(step, 0);
+        };
+        step();
       }
 
       async function refreshRealtimePrice() {
@@ -548,7 +677,7 @@
 
       barSelect.addEventListener("change", () => {
         lastTimestamp = null;
-        loadCandles({ mode: "full" });
+        loadInitialCandles();
       });
       barSelect.addEventListener("change", () => {
         setCookie("tautoBar", barSelect.value);
@@ -558,9 +687,9 @@
       });
       instSelect.addEventListener("change", () => {
         lastTimestamp = null;
-        loadCandles({ mode: "full" });
+        loadInitialCandles();
       });
-      refreshBtn.addEventListener("click", () => loadCandles({ mode: "auto" }));
+      refreshBtn.addEventListener("click", loadRecentCandles);
       windowInput.addEventListener("change", updateVolumeSpikeIndicator);
       windowInput.addEventListener("change", () => {
         setCookie("tautoWindow", windowInput.value);
@@ -603,10 +732,10 @@
       const savedColorMode = getCookie("tautoColorMode");
       useReversedColors = savedColorMode === "reversed";
       applyCandleColors();
-      loadCandles({ mode: "full" });
+      loadInitialCandles();
       window.addEventListener("resize", updatePaneHeights);
-      setInterval(() => loadCandles({ mode: "auto" }), 15000);
-      setInterval(refreshRealtimePrice, 1000);
+      setInterval(loadRecentCandles, 15000);
+      setInterval(refreshRealtimePrice, 200);
     </script>
   </body>
 </html>
