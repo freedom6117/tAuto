@@ -88,6 +88,15 @@ class OkxClient:
         )
         return payload.get("data", [])
 
+    def get_ticker(self, inst_id: str) -> Dict[str, Any]:
+        """获取指定交易对的最新行情。"""
+        payload = self._request(
+            "/api/v5/market/ticker",
+            {"instId": inst_id},
+        )
+        data = payload.get("data", [])
+        return data[0] if data else {}
+
     def get_candlesticks(
         self,
         inst_id: str,
