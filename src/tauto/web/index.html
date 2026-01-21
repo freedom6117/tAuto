@@ -184,6 +184,7 @@
           <input id="multiplierInput" type="number" min="1" step="0.1" value="5" />
         </div>
         <button id="themeToggle" type="button">明亮模式</button>
+        <button id="colorToggle" type="button">涨跌色互换</button>
         <button id="refreshBtn" type="button">刷新</button>
       </div>
     </header>
@@ -201,12 +202,16 @@
       const windowInput = document.getElementById("windowInput");
       const multiplierInput = document.getElementById("multiplierInput");
       const themeToggle = document.getElementById("themeToggle");
+      const colorToggle = document.getElementById("colorToggle");
       const chartContainer = document.getElementById("chart");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
       const candlePaneId = "candle_pane";
       const volumePaneId = "volume_pane";
       const macdPaneId = "macd_pane";
       let currentTheme = "dark";
+      let useReversedColors = false;
+      let lastTimestamp = null;
+      let priceRefreshInFlight = false;
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
       } else {
@@ -262,10 +267,40 @@
           },
         });
 
+        klinecharts.registerIndicator({
+          name: "RT_PRICE",
+          shortName: "实时价",
+          series: klinecharts.IndicatorSeries.Price,
+          figures: [
+            {
+              key: "price",
+              title: "实时价: ",
+              type: "line",
+            },
+          ],
+          styles: {
+            lines: [
+              {
+                color: "#3b82f6",
+                size: 1,
+                style: "solid",
+              },
+            ],
+          },
+          calc: (dataList) => {
+            if (!dataList.length) {
+              return [];
+            }
+            const lastClose = Number(dataList[dataList.length - 1].close);
+            return dataList.map(() => ({ price: lastClose }));
+          },
+        });
+
         chart.createIndicator("MA", false, { id: candlePaneId });
         chart.createIndicator("VOL", false, { id: volumePaneId, height: 120 });
         chart.createIndicator("VOL_SPIKE", true, { id: volumePaneId });
         chart.createIndicator("MACD", false, { id: macdPaneId, height: 120 });
+        chart.createIndicator("RT_PRICE", true, { id: candlePaneId });
       }
 
       function getWindowSize() {
@@ -338,6 +373,29 @@
         setCookie("tautoTheme", currentTheme);
       }
 
+      function applyCandleColors() {
+        if (!chart) {
+          return;
+        }
+        const upColor = useReversedColors ? "#ef4444" : "#22c55e";
+        const downColor = useReversedColors ? "#22c55e" : "#ef4444";
+        chart.setStyles({
+          candle: {
+            type: klinecharts.CandleType.CandleSolid,
+            bar: {
+              upColor,
+              downColor,
+              upBorderColor: upColor,
+              downBorderColor: downColor,
+              upWickColor: upColor,
+              downWickColor: downColor,
+            },
+          },
+        });
+        colorToggle.textContent = useReversedColors ? "恢复默认色" : "涨跌色互换";
+        setCookie("tautoColorMode", useReversedColors ? "reversed" : "normal");
+      }
+
       function formatNumber(value) {
         if (!Number.isFinite(value)) {
           return "--";
@@ -395,37 +453,63 @@
         volumeTooltip.style.opacity = 1;
       }
 
-      async function loadCandles() {
+      function normalizeCandles(list) {
+        return list.map((item) => ({
+          ...item,
+          timestamp: Number(item.timestamp),
+          open: Number(item.open),
+          high: Number(item.high),
+          low: Number(item.low),
+          close: Number(item.close),
+          volume: Number(item.volume),
+        }));
+      }
+
+      function updateLastTimestamp(data) {
+        if (data.length > 0) {
+          lastTimestamp = data[data.length - 1].timestamp;
+        }
+      }
+
+      async function loadCandles({ mode = "auto" } = {}) {
         const bar = barSelect.value;
         const instId = instSelect.value;
+        const needFull = mode === "full" || !lastTimestamp;
         refreshBtn.disabled = true;
         refreshBtn.textContent = "加载中...";
         if (!chart) {
           return;
         }
         try {
-          const response = await fetch(
-            `/api/candles?bar=${bar}&inst_id=${encodeURIComponent(instId)}&all_data=true`,
-          );
+          const params = new URLSearchParams({
+            bar,
+            inst_id: instId,
+          });
+          if (needFull) {
+            params.set("all_data", "true");
+          } else {
+            params.set("since_ts", String(lastTimestamp));
+          }
+          const response = await fetch(`/api/candles?${params.toString()}`);
           if (!response.ok) {
             throw new Error(`请求失败：${response.status}`);
           }
           const payload = await response.json();
-          const data = payload.data.map((item) => ({
-            ...item,
-            timestamp: Number(item.timestamp),
-            open: Number(item.open),
-            high: Number(item.high),
-            low: Number(item.low),
-            close: Number(item.close),
-            volume: Number(item.volume),
-          }));
+          const data = normalizeCandles(payload.data);
           const sortedData = data.slice().sort((a, b) => a.timestamp - b.timestamp);
-          chart.applyNewData(sortedData);
-          updateVolumeSpikeIndicator();
-          applyPaneBorders();
-          updatePaneHeights();
-          meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${payload.count}`;
+          if (needFull) {
+            chart.applyNewData(sortedData);
+            updateVolumeSpikeIndicator();
+            applyPaneBorders();
+            updatePaneHeights();
+          } else if (sortedData.length > 0) {
+            sortedData.forEach((item) => {
+              chart.updateData(item);
+            });
+          }
+          updateLastTimestamp(sortedData);
+          const totalCount = chart.getDataList().length;
+          meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${totalCount}`;
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
         } finally {
@@ -434,15 +518,49 @@
         }
       }
 
-      barSelect.addEventListener("change", loadCandles);
+      async function refreshRealtimePrice() {
+        if (!chart || priceRefreshInFlight) {
+          return;
+        }
+        priceRefreshInFlight = true;
+        try {
+          const params = new URLSearchParams({
+            bar: barSelect.value,
+            inst_id: instSelect.value,
+            limit: "1",
+          });
+          const response = await fetch(`/api/candles?${params.toString()}`);
+          if (!response.ok) {
+            throw new Error(`请求失败：${response.status}`);
+          }
+          const payload = await response.json();
+          const data = normalizeCandles(payload.data);
+          if (data.length > 0) {
+            chart.updateData(data[0]);
+            updateLastTimestamp(data);
+          }
+        } catch (error) {
+          console.warn("实时价格更新失败", error);
+        } finally {
+          priceRefreshInFlight = false;
+        }
+      }
+
+      barSelect.addEventListener("change", () => {
+        lastTimestamp = null;
+        loadCandles({ mode: "full" });
+      });
       barSelect.addEventListener("change", () => {
         setCookie("tautoBar", barSelect.value);
       });
       instSelect.addEventListener("change", () => {
         setCookie("tautoInst", instSelect.value);
       });
-      instSelect.addEventListener("change", loadCandles);
-      refreshBtn.addEventListener("click", loadCandles);
+      instSelect.addEventListener("change", () => {
+        lastTimestamp = null;
+        loadCandles({ mode: "full" });
+      });
+      refreshBtn.addEventListener("click", () => loadCandles({ mode: "auto" }));
       windowInput.addEventListener("change", updateVolumeSpikeIndicator);
       windowInput.addEventListener("change", () => {
         setCookie("tautoWindow", windowInput.value);
@@ -453,6 +571,10 @@
       });
       themeToggle.addEventListener("click", () => {
         setTheme(currentTheme === "light" ? "dark" : "light");
+      });
+      colorToggle.addEventListener("click", () => {
+        useReversedColors = !useReversedColors;
+        applyCandleColors();
       });
       if (chart) {
         chart.subscribeAction(klinecharts.ActionType.OnCrosshairChange, (payload) => {
@@ -478,9 +600,13 @@
       }
       const savedTheme = getCookie("tautoTheme") || "dark";
       setTheme(savedTheme);
-      loadCandles();
+      const savedColorMode = getCookie("tautoColorMode");
+      useReversedColors = savedColorMode === "reversed";
+      applyCandleColors();
+      loadCandles({ mode: "full" });
       window.addEventListener("resize", updatePaneHeights);
-      setInterval(loadCandles, 15000);
+      setInterval(() => loadCandles({ mode: "auto" }), 15000);
+      setInterval(refreshRealtimePrice, 1000);
     </script>
   </body>
 </html>
