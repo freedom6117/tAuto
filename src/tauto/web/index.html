@@ -664,6 +664,9 @@
             throw new Error(`请求失败：${response.status}`);
           }
           const payload = await response.json();
+          if (payload.instId !== instSelect.value) {
+            return;
+          }
           const lastPrice = Number(payload.last);
           if (!Number.isFinite(lastPrice)) {
             return;
@@ -691,6 +694,11 @@
 
       barSelect.addEventListener("change", () => {
         lastTimestamp = null;
+        priceRefreshRequestId = 0;
+        priceRefreshLatestAppliedId = 0;
+        if (chart) {
+          chart.applyNewData([]);
+        }
         loadInitialCandles();
       });
       barSelect.addEventListener("change", () => {
@@ -701,6 +709,11 @@
       });
       instSelect.addEventListener("change", () => {
         lastTimestamp = null;
+        priceRefreshRequestId = 0;
+        priceRefreshLatestAppliedId = 0;
+        if (chart) {
+          chart.applyNewData([]);
+        }
         loadInitialCandles();
       });
       refreshBtn.addEventListener("click", loadRecentCandles);
