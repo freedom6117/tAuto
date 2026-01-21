@@ -211,7 +211,7 @@
       let currentTheme = "dark";
       let useReversedColors = false;
       let lastTimestamp = null;
-      let priceRefreshInFlight = false;
+      let priceRefreshController = null;
       let historyLoadToken = 0;
       let historyLoadInFlight = false;
       if (!chart) {
@@ -648,17 +648,22 @@
       }
 
       async function refreshRealtimePrice() {
-        if (!chart || priceRefreshInFlight) {
+        if (!chart) {
           return;
         }
-        priceRefreshInFlight = true;
+        if (priceRefreshController) {
+          priceRefreshController.abort();
+        }
+        priceRefreshController = new AbortController();
         try {
           const params = new URLSearchParams({
             bar: barSelect.value,
             inst_id: instSelect.value,
             limit: "1",
           });
-          const response = await fetch(`/api/candles?${params.toString()}`);
+          const response = await fetch(`/api/candles?${params.toString()}`, {
+            signal: priceRefreshController.signal,
+          });
           if (!response.ok) {
             throw new Error(`请求失败：${response.status}`);
           }
@@ -669,9 +674,9 @@
             updateLastTimestamp(data);
           }
         } catch (error) {
-          console.warn("实时价格更新失败", error);
-        } finally {
-          priceRefreshInFlight = false;
+          if (error.name !== "AbortError") {
+            console.warn("实时价格更新失败", error);
+          }
         }
       }
 
