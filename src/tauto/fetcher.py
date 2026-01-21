@@ -15,7 +15,7 @@ from .storage import SqliteCandleStore
 
 DEFAULT_INST_IDS = [
     inst.strip()
-    for inst in os.getenv("TAUTO_INST_IDS", "BTC-USDT,BTC-USDT-SWAP").split(",")
+    for inst in os.getenv("TAUTO_INST_IDS", "BTC-USDT,BTC-USDT-SWAP,ETH-USDT,ETH-USDT-SWAP").split(",")
     if inst.strip()
 ]
 DEFAULT_DB_PATH = os.getenv("TAUTO_DB_PATH", "candles.db")
