@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from .okx import OkxClient
 from .storage import CandleStick, SqliteCandleStore
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -49,6 +50,7 @@ DEFAULT_DB_PATH = os.getenv("TAUTO_DB_PATH", "candles.db")
 
 app = FastAPI(title="TAuto K-Line Service")
 store = SqliteCandleStore(DEFAULT_DB_PATH)
+okx_client = OkxClient()
 
 
 @app.on_event("startup")
@@ -93,6 +95,20 @@ def get_candles(
     )
     payload = [_to_kline_payload(candle) for candle in candles]
     return {"instId": inst_id, "bar": bar, "count": len(payload), "data": payload}
+
+
+@app.get("/api/ticker")
+def get_ticker(
+    inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
+) -> dict:
+    ticker = okx_client.get_ticker(inst_id)
+    if not ticker:
+        raise HTTPException(status_code=502, detail="Ticker data unavailable")
+    return {
+        "instId": inst_id,
+        "last": ticker.get("last"),
+        "ts": ticker.get("ts"),
+    }
 
 
 def _to_kline_payload(candle: CandleStick) -> dict:
