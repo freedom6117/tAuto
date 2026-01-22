@@ -305,6 +305,13 @@
         chart.createIndicator("VOL", false, { id: volumePaneId, height: 120 });
         chart.createIndicator("VOL_SPIKE", true, { id: volumePaneId });
         chart.createIndicator("MACD", false, { id: macdPaneId, height: 120 });
+        chart.overrideIndicator(
+          {
+            name: "MACD",
+            calcParams: [5, 10, 20, 60, 120, 250],
+          },
+          macdPaneId,
+        );
         chart.createIndicator("RT_PRICE", true, { id: candlePaneId });
       }
 
