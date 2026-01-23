@@ -122,7 +122,9 @@ class CandlestickService:
 
         expected = self._expected_timestamps(start_ts, end_ts)
         existing = set(
-            self.store.fetch_existing_timestamps(inst_id, self.bar, start_ts, end_ts)
+            self.store.fetch_existing_timestamps(
+                self.client.source, inst_id, self.bar, start_ts, end_ts
+            )
         )
         missing = [ts for ts in expected if ts not in existing]
         for ts in missing:
@@ -132,7 +134,7 @@ class CandlestickService:
     def fill_since_latest(self, inst_id: str) -> Optional[int]:
         """Backfill from the latest stored candle to now."""
 
-        latest = self.store.latest_timestamp(inst_id, self.bar)
+        latest = self.store.latest_timestamp(self.client.source, inst_id, self.bar)
         if latest is None:
             return None
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -154,6 +156,7 @@ class CandlestickService:
     def _parse_candle(self, inst_id: str, row: Iterable[str]) -> CandleStick:
         values = list(row)
         return CandleStick(
+            source=self.client.source,
             inst_id=inst_id,
             bar=self.bar,
             ts=int(values[0]),

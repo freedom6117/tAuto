@@ -20,6 +20,7 @@ class OkxApiError(RuntimeError):
 class OkxClient:
     """OKX 公共 REST 接口客户端。"""
 
+    source: str = "okx"
     base_url: str = "https://www.okx.com"
     timeout: float = 10.0
     max_retries: int = 3

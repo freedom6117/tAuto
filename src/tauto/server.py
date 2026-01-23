@@ -111,14 +111,26 @@ def get_candles(
         if normalized is None:
             raise HTTPException(status_code=400, detail="Unsupported bar interval")
         resolved_limit = min(limit or 500, 1000)
-        start_time = since_ts + 1 if since_ts is not None else None
-        klines = binance_client.get_klines(
-            symbol=inst_id,
-            interval=normalized,
-            limit=resolved_limit,
-            start_time=start_time,
-        )
-        payload = [_to_binance_kline_payload(row) for row in klines]
+        if all_data:
+            _backfill_binance_history(inst_id, normalized)
+            candles = store.fetch_candles("binance", inst_id, normalized, limit=None)
+            payload = [_to_kline_payload(candle) for candle in candles]
+        else:
+            start_time = since_ts + 1 if since_ts is not None else None
+            _store_binance_klines(
+                inst_id=inst_id,
+                bar=normalized,
+                limit=resolved_limit,
+                start_time=start_time,
+            )
+            candles = store.fetch_candles(
+                "binance",
+                inst_id,
+                normalized,
+                limit=resolved_limit,
+                start_ts=start_time,
+            )
+            payload = [_to_kline_payload(candle) for candle in candles]
         return {
             "instId": inst_id,
             "bar": bar,
@@ -134,7 +146,7 @@ def get_candles(
     if since_ts is not None and not all_data:
         start_ts = since_ts + 1
     candles = store.fetch_candles(
-        inst_id, normalized, limit=resolved_limit, start_ts=start_ts
+        "okx", inst_id, normalized, limit=resolved_limit, start_ts=start_ts
     )
     payload = [_to_kline_payload(candle) for candle in candles]
     return {
@@ -210,15 +222,74 @@ def get_orderbook(
     }
 
 
-def _to_binance_kline_payload(row: list) -> dict:
-    return {
-        "timestamp": int(row[0]),
-        "open": float(row[1]),
-        "high": float(row[2]),
-        "low": float(row[3]),
-        "close": float(row[4]),
-        "volume": float(row[5]),
-    }
+def _store_binance_klines(
+    inst_id: str,
+    bar: str,
+    limit: int,
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None,
+) -> int:
+    klines = binance_client.get_klines(
+        symbol=inst_id,
+        interval=bar,
+        limit=limit,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    if not klines:
+        return 0
+    candles = [
+        CandleStick(
+            source="binance",
+            inst_id=inst_id,
+            bar=bar,
+            ts=int(row[0]),
+            open=float(row[1]),
+            high=float(row[2]),
+            low=float(row[3]),
+            close=float(row[4]),
+            volume=float(row[5]),
+            volume_ccy=float(row[7]) if len(row) > 7 else 0.0,
+            volume_quote=float(row[7]) if len(row) > 7 else 0.0,
+            confirm=True,
+        )
+        for row in klines
+    ]
+    store.upsert_candles(candles)
+    return len(candles)
+
+
+def _backfill_binance_history(inst_id: str, bar: str) -> None:
+    interval_ms = _binance_interval_ms(bar)
+    now_ms = int(time.time() * 1000)
+    cutoff_ms = now_ms - (90 * 24 * 60 * 60 * 1000)
+    end_time = now_ms
+    while end_time >= cutoff_ms:
+        fetched = _store_binance_klines(
+            inst_id=inst_id,
+            bar=bar,
+            limit=1000,
+            end_time=end_time,
+        )
+        if fetched == 0:
+            break
+        end_time -= fetched * interval_ms
+
+
+def _binance_interval_ms(interval: str) -> int:
+    unit = interval[-1]
+    value = int(interval[:-1])
+    if unit == "m":
+        return value * 60 * 1000
+    if unit == "h":
+        return value * 60 * 60 * 1000
+    if unit == "d":
+        return value * 24 * 60 * 60 * 1000
+    if unit == "w":
+        return value * 7 * 24 * 60 * 60 * 1000
+    if unit == "M":
+        return value * 30 * 24 * 60 * 60 * 1000
+    raise ValueError(f"Unsupported interval: {interval}")
 
 
 def _to_kline_payload(candle: CandleStick) -> dict:

@@ -95,7 +95,7 @@ def _refresh_candles(
     bar: str,
     limit: int,
 ) -> None:
-    latest = store.latest_timestamp(inst_id, bar)
+    latest = store.latest_timestamp(service.client.source, inst_id, bar)
     now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
     if latest is None:
         interval_ms = _bar_to_milliseconds(bar)
@@ -215,7 +215,9 @@ def _process_backfill_queue(
         day_start, day_end = day_queue.popleft()
         for inst_id in inst_ids:
             for bar, service in services.items():
-                missing = _find_missing_in_day(store, inst_id, bar, day_start, day_end)
+                missing = _find_missing_in_day(
+                    store, service.client.source, inst_id, bar, day_start, day_end
+                )
                 if not missing:
                     continue
                 service.fetch_history(inst_id, day_start, day_end)
@@ -234,6 +236,7 @@ def _process_backfill_queue(
 
 def _find_missing_in_day(
     store: SqliteCandleStore,
+    source: str,
     inst_id: str,
     bar: str,
     day_start: int,
@@ -243,7 +246,11 @@ def _find_missing_in_day(
     aligned_start = day_start - (day_start % interval_ms)
     aligned_end = day_end - (day_end % interval_ms)
     expected = list(range(aligned_start, aligned_end + interval_ms, interval_ms))
-    existing = set(store.fetch_existing_timestamps(inst_id, bar, aligned_start, aligned_end))
+    existing = set(
+        store.fetch_existing_timestamps(
+            source, inst_id, bar, aligned_start, aligned_end
+        )
+    )
     return [ts for ts in expected if ts not in existing]
 
 
@@ -255,8 +262,10 @@ def _day_has_missing(
     day_end: int,
 ) -> bool:
     for inst_id in inst_ids:
-        for bar in services:
-            if _find_missing_in_day(store, inst_id, bar, day_start, day_end):
+        for bar, service in services.items():
+            if _find_missing_in_day(
+                store, service.client.source, inst_id, bar, day_start, day_end
+            ):
                 return True
     return False
 

@@ -165,7 +165,7 @@ def main() -> None:
         start = time.monotonic()
         for tick in range(args.duration):
             service.fetch_realtime(args.inst_id)
-            latest = store.latest_timestamp(args.inst_id, args.bar)
+            latest = store.latest_timestamp(service.client.source, args.inst_id, args.bar)
             now = time.strftime("%Y-%m-%d %H:%M:%S")
             print(
                 f"[{now}] tick={tick + 1}/{args.duration} "
