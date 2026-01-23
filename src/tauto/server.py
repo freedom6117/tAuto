@@ -111,6 +111,22 @@ def get_ticker(
     }
 
 
+@app.get("/api/orderbook")
+def get_orderbook(
+    inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
+    depth: int = Query(20, ge=1, le=200),
+) -> dict:
+    book = okx_client.get_order_book(inst_id, depth=depth)
+    if not book:
+        raise HTTPException(status_code=502, detail="Order book data unavailable")
+    return {
+        "instId": inst_id,
+        "ts": book.get("ts"),
+        "bids": book.get("bids", []),
+        "asks": book.get("asks", []),
+    }
+
+
 def _to_kline_payload(candle: CandleStick) -> dict:
     return {
         "timestamp": candle.ts,

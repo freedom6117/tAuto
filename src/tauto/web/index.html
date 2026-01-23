@@ -111,6 +111,20 @@
         min-height: 0;
       }
 
+      .layout {
+        display: flex;
+        gap: 16px;
+        flex: 1;
+        min-height: 0;
+      }
+
+      .chart-area {
+        flex: 1;
+        min-width: 0;
+        position: relative;
+        display: flex;
+      }
+
       #chart {
         width: 100%;
         flex: 1;
@@ -118,11 +132,43 @@
         height: 100%;
       }
 
+      .orderbook-panel {
+        width: 260px;
+        min-width: 220px;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        padding: 12px;
+        gap: 8px;
+      }
+
+      .orderbook-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+
+      .orderbook-title {
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      #orderbookCanvas {
+        width: 100%;
+        flex: 1;
+        border-radius: 6px;
+        background: var(--control-bg);
+      }
+
       .meta {
         font-size: 13px;
         color: var(--text-muted);
         position: absolute;
-        right: 24px;
+        right: 16px;
         bottom: 12px;
       }
 
@@ -191,8 +237,19 @@
       </div>
     </header>
     <main class="content">
-      <div id="chart"></div>
-      <div class="meta" id="meta"></div>
+      <div class="layout">
+        <div class="chart-area">
+          <div id="chart"></div>
+          <div class="meta" id="meta"></div>
+        </div>
+        <aside class="orderbook-panel">
+          <div class="orderbook-header">
+            <span class="orderbook-title">挂单量</span>
+            <span id="orderbookStatus">--</span>
+          </div>
+          <canvas id="orderbookCanvas"></canvas>
+        </aside>
+      </div>
     </main>
 
     <script src="/static/vendor/klinecharts.min.js"></script>
@@ -206,6 +263,8 @@
       const themeToggle = document.getElementById("themeToggle");
       const colorToggle = document.getElementById("colorToggle");
       const chartContainer = document.getElementById("chart");
+      const orderbookCanvas = document.getElementById("orderbookCanvas");
+      const orderbookStatus = document.getElementById("orderbookStatus");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
       const candlePaneId = "candle_pane";
       const volumePaneId = "volume_pane";
@@ -215,6 +274,10 @@
       let lastTimestamp = null;
       let priceRefreshRequestId = 0;
       let priceRefreshLatestAppliedId = 0;
+      let orderBookRequestId = 0;
+      let orderBookLatestAppliedId = 0;
+      let lastOrderBook = null;
+      const orderBookContext = orderbookCanvas?.getContext("2d") ?? null;
       let historyLoadToken = 0;
       let historyLoadInFlight = false;
       if (!chart) {
@@ -301,7 +364,9 @@
           },
         });
 
-        chart.createIndicator("MA", false, { id: candlePaneId });
+        chart.createIndicator({ name: "MA", calcParams: [5, 10, 20, 60, 120, 250] }, false, {
+          id: candlePaneId,
+        });
         chart.createIndicator("VOL", false, { id: volumePaneId, height: 120 });
         chart.createIndicator("VOL_SPIKE", true, { id: volumePaneId });
         chart.createIndicator("MACD", false, { id: macdPaneId, height: 120 });
@@ -376,6 +441,7 @@
         document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
         themeToggle.textContent = theme === "light" ? "暗黑模式" : "明亮模式";
         setCookie("tautoTheme", currentTheme);
+        renderOrderBook(lastOrderBook);
       }
 
       function applyCandleColors() {
@@ -429,6 +495,7 @@
         );
         colorToggle.textContent = useReversedColors ? "恢复默认色" : "涨跌色互换";
         setCookie("tautoColorMode", useReversedColors ? "reversed" : "normal");
+        renderOrderBook(lastOrderBook);
       }
 
       function formatNumber(value) {
@@ -437,6 +504,129 @@
         }
         return Number(value).toLocaleString(undefined, {
           maximumFractionDigits: 2,
+        });
+      }
+
+      function formatCompactNumber(value) {
+        if (!Number.isFinite(value)) {
+          return "--";
+        }
+        return Number(value).toLocaleString(undefined, {
+          maximumFractionDigits: 4,
+        });
+      }
+
+      function getOrderBookColors() {
+        const bidColor = useReversedColors ? "#ef4444" : "#22c55e";
+        const askColor = useReversedColors ? "#22c55e" : "#ef4444";
+        return { bidColor, askColor };
+      }
+
+      function resizeOrderBookCanvas() {
+        if (!orderbookCanvas || !orderBookContext) {
+          return;
+        }
+        const rect = orderbookCanvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) {
+          return;
+        }
+        const ratio = window.devicePixelRatio || 1;
+        orderbookCanvas.width = Math.floor(rect.width * ratio);
+        orderbookCanvas.height = Math.floor(rect.height * ratio);
+        orderBookContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+        renderOrderBook(lastOrderBook);
+      }
+
+      function normalizeOrderBook(payload) {
+        const bids = (payload?.bids ?? [])
+          .map((row) => ({
+            price: Number(row[0]),
+            size: Number(row[1]),
+          }))
+          .filter((row) => Number.isFinite(row.price) && Number.isFinite(row.size));
+        const asks = (payload?.asks ?? [])
+          .map((row) => ({
+            price: Number(row[0]),
+            size: Number(row[1]),
+          }))
+          .filter((row) => Number.isFinite(row.price) && Number.isFinite(row.size));
+        return {
+          instId: payload?.instId ?? "",
+          ts: Number(payload?.ts) || null,
+          bids,
+          asks,
+        };
+      }
+
+      function renderOrderBook(book) {
+        if (!orderBookContext || !orderbookCanvas) {
+          return;
+        }
+        const width = orderbookCanvas.clientWidth;
+        const height = orderbookCanvas.clientHeight;
+        orderBookContext.clearRect(0, 0, width, height);
+        orderBookContext.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--control-bg");
+        orderBookContext.fillRect(0, 0, width, height);
+        if (!book || (!book.bids.length && !book.asks.length)) {
+          orderBookContext.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(
+            "--text-muted",
+          );
+          orderBookContext.font = "12px sans-serif";
+          orderBookContext.textAlign = "center";
+          orderBookContext.textBaseline = "middle";
+          orderBookContext.fillText("暂无挂单数据", width / 2, height / 2);
+          return;
+        }
+        const rowHeight = 18;
+        const padding = 8;
+        const availableHeight = Math.max(height - padding * 2, rowHeight);
+        const rowsPerSide = Math.max(1, Math.floor(availableHeight / (rowHeight * 2)));
+        const asks = book.asks.slice(0, rowsPerSide);
+        const bids = book.bids.slice(0, rowsPerSide);
+        const maxVolume = Math.max(
+          1,
+          ...asks.map((item) => item.size),
+          ...bids.map((item) => item.size),
+        );
+        const { bidColor, askColor } = getOrderBookColors();
+        const textColor = getComputedStyle(document.documentElement).getPropertyValue("--text-primary");
+        const mutedColor = getComputedStyle(document.documentElement).getPropertyValue("--text-muted");
+        const centerLineY = padding + rowsPerSide * rowHeight;
+        orderBookContext.strokeStyle = mutedColor;
+        orderBookContext.lineWidth = 1;
+        orderBookContext.beginPath();
+        orderBookContext.moveTo(padding, centerLineY);
+        orderBookContext.lineTo(width - padding, centerLineY);
+        orderBookContext.stroke();
+        orderBookContext.font = "12px sans-serif";
+        orderBookContext.textAlign = "left";
+        orderBookContext.textBaseline = "middle";
+        const barMaxWidth = width - padding * 2;
+
+        asks.forEach((item, index) => {
+          const y = padding + index * rowHeight + rowHeight / 2;
+          const barWidth = (item.size / maxVolume) * barMaxWidth;
+          orderBookContext.fillStyle = `${askColor}33`;
+          orderBookContext.fillRect(width - padding - barWidth, y - rowHeight / 2 + 2, barWidth, rowHeight - 4);
+          orderBookContext.fillStyle = askColor;
+          orderBookContext.fillText(formatCompactNumber(item.price), padding, y);
+          orderBookContext.textAlign = "right";
+          orderBookContext.fillStyle = textColor;
+          orderBookContext.fillText(formatCompactNumber(item.size), width - padding, y);
+          orderBookContext.textAlign = "left";
+        });
+
+        bids.forEach((item, index) => {
+          const y = centerLineY + index * rowHeight + rowHeight / 2;
+          const barWidth = (item.size / maxVolume) * barMaxWidth;
+          orderBookContext.fillStyle = `${bidColor}33`;
+          orderBookContext.fillRect(width - padding - barWidth, y - rowHeight / 2 + 2, barWidth, rowHeight - 4);
+          orderBookContext.fillStyle = bidColor;
+          orderBookContext.fillText(formatCompactNumber(item.price), padding, y);
+          orderBookContext.textAlign = "right";
+          orderBookContext.fillStyle = textColor;
+          orderBookContext.fillText(formatCompactNumber(item.size), width - padding, y);
+          orderBookContext.textAlign = "left";
         });
       }
 
@@ -692,6 +882,37 @@
         }
       }
 
+      async function loadOrderBook() {
+        if (!orderbookStatus) {
+          return;
+        }
+        const requestId = ++orderBookRequestId;
+        try {
+          const params = new URLSearchParams({
+            inst_id: instSelect.value,
+            depth: "20",
+          });
+          const response = await fetch(`/api/orderbook?${params.toString()}`);
+          if (!response.ok) {
+            throw new Error(`请求失败：${response.status}`);
+          }
+          const payload = await response.json();
+          if (payload.instId !== instSelect.value) {
+            return;
+          }
+          if (requestId < orderBookLatestAppliedId) {
+            return;
+          }
+          orderBookLatestAppliedId = requestId;
+          lastOrderBook = normalizeOrderBook(payload);
+          renderOrderBook(lastOrderBook);
+          const ts = lastOrderBook.ts ? new Date(lastOrderBook.ts).toLocaleTimeString() : "--";
+          orderbookStatus.textContent = `更新 ${ts}`;
+        } catch (error) {
+          orderbookStatus.textContent = "挂单获取失败";
+        }
+      }
+
       barSelect.addEventListener("change", () => {
         lastTimestamp = null;
         priceRefreshRequestId = 0;
@@ -715,6 +936,7 @@
           chart.applyNewData([]);
         }
         loadInitialCandles();
+        loadOrderBook();
       });
       refreshBtn.addEventListener("click", loadRecentCandles);
       windowInput.addEventListener("change", updateVolumeSpikeIndicator);
@@ -760,9 +982,13 @@
       useReversedColors = savedColorMode === "reversed";
       applyCandleColors();
       loadInitialCandles();
+      resizeOrderBookCanvas();
+      loadOrderBook();
       window.addEventListener("resize", updatePaneHeights);
+      window.addEventListener("resize", resizeOrderBookCanvas);
       setInterval(loadRecentCandles, 15000);
       setInterval(refreshRealtimePrice, 100);
+      setInterval(loadOrderBook, 2000);
     </script>
   </body>
 </html>
