@@ -69,9 +69,10 @@
       .controls {
         margin-left: auto;
         display: flex;
-        align-items: center;
+        align-items: flex-end;
         gap: 12px;
         flex-wrap: wrap;
+        flex-direction: column;
       }
 
       select,
@@ -102,6 +103,18 @@
 
       .control-group input {
         width: 72px;
+      }
+
+      .controls-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .controls-row.secondary {
+        gap: 8px;
       }
 
       .ma-toggles {
@@ -228,50 +241,38 @@
     <header>
       <h1>KLineChart 实时 K 线展示</h1>
       <div class="controls">
-        <label for="barSelect">级别</label>
-        <select id="barSelect">
-          <option value="1m">1m</option>
-          <option value="5m">5m</option>
-          <option value="15m">15m</option>
-          <option value="30m">30m</option>
-          <option value="1h">1h</option>
-          <option value="2h">2h</option>
-          <option value="4h">4h</option>
-          <option value="6h">6h</option>
-          <option value="12h">12h</option>
-          <option value="1d">1d</option>
-          <option value="2d">2d</option>
-          <option value="3d">3d</option>
-          <option value="1w">1w</option>
-          <option value="1M">1M</option>
-          <option value="3M">3M</option>
-        </select>
-        <label for="instSelect">标的</label>
-        <select id="instSelect">
-          <option value="BTC-USDT">BTC-USDT</option>
-          <option value="BTC-USDT-SWAP">BTC-USDT 永续</option>
-          <option value="ETH-USDT">ETH-USDT</option>
-          <option value="ETH-USDT-SWAP">ETH-USDT 永续</option>
-        </select>
-        <div class="control-group">
-          <label for="windowInput">窗口W</label>
-          <input id="windowInput" type="number" min="1" step="1" value="60" />
+        <div class="controls-row">
+          <label for="sourceSelect">数据源</label>
+          <select id="sourceSelect">
+            <option value="okx">OKX</option>
+            <option value="binance">Binance</option>
+          </select>
+          <label for="barSelect">级别</label>
+          <select id="barSelect"></select>
+          <label for="instSelect">标的</label>
+          <select id="instSelect"></select>
+          <div class="control-group">
+            <label for="windowInput">窗口W</label>
+            <input id="windowInput" type="number" min="1" step="1" value="60" />
+          </div>
+          <div class="control-group">
+            <label for="multiplierInput">倍数N</label>
+            <input id="multiplierInput" type="number" min="1" step="0.1" value="5" />
+          </div>
+          <button id="themeToggle" type="button">明亮模式</button>
+          <button id="colorToggle" type="button">涨跌色互换</button>
+          <button id="refreshBtn" type="button">刷新</button>
         </div>
-        <div class="control-group">
-          <label for="multiplierInput">倍数N</label>
-          <input id="multiplierInput" type="number" min="1" step="0.1" value="5" />
-        </div>
-        <button id="themeToggle" type="button">明亮模式</button>
-        <button id="colorToggle" type="button">涨跌色互换</button>
-        <button id="refreshBtn" type="button">刷新</button>
-        <div class="ma-toggles" aria-label="均线显示">
-          <span class="ma-label">均线</span>
-          <button class="ma-toggle active" type="button" data-ma-index="0" aria-pressed="true">MA5</button>
-          <button class="ma-toggle active" type="button" data-ma-index="1" aria-pressed="true">MA10</button>
-          <button class="ma-toggle active" type="button" data-ma-index="2" aria-pressed="true">MA20</button>
-          <button class="ma-toggle active" type="button" data-ma-index="3" aria-pressed="true">MA60</button>
-          <button class="ma-toggle active" type="button" data-ma-index="4" aria-pressed="true">MA120</button>
-          <button class="ma-toggle active" type="button" data-ma-index="5" aria-pressed="true">MA250</button>
+        <div class="controls-row secondary">
+          <div class="ma-toggles" aria-label="均线显示">
+            <span class="ma-label">均线</span>
+            <button class="ma-toggle active" type="button" data-ma-index="0" aria-pressed="true">MA5</button>
+            <button class="ma-toggle active" type="button" data-ma-index="1" aria-pressed="true">MA10</button>
+            <button class="ma-toggle active" type="button" data-ma-index="2" aria-pressed="true">MA20</button>
+            <button class="ma-toggle active" type="button" data-ma-index="3" aria-pressed="true">MA60</button>
+            <button class="ma-toggle active" type="button" data-ma-index="4" aria-pressed="true">MA120</button>
+            <button class="ma-toggle active" type="button" data-ma-index="5" aria-pressed="true">MA250</button>
+          </div>
         </div>
       </div>
     </header>
@@ -294,6 +295,7 @@
     <script src="/static/vendor/klinecharts.min.js"></script>
     <script>
       const meta = document.getElementById("meta");
+      const sourceSelect = document.getElementById("sourceSelect");
       const barSelect = document.getElementById("barSelect");
       const instSelect = document.getElementById("instSelect");
       const refreshBtn = document.getElementById("refreshBtn");
@@ -311,6 +313,26 @@
       const maToggles = document.querySelectorAll(".ma-toggle");
       const maColors = ["#f97316", "#06b6d4", "#22c55e", "#eab308", "#3b82f6", "#8b5cf6"];
       const maVisibility = Array.from({ length: maColors.length }, () => true);
+      const dataSources = {
+        okx: {
+          label: "OKX",
+          bars: ["1m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "2d", "3d", "1w", "1M", "3M"],
+          instruments: [
+            { value: "BTC-USDT", label: "BTC-USDT" },
+            { value: "BTC-USDT-SWAP", label: "BTC-USDT 永续" },
+            { value: "ETH-USDT", label: "ETH-USDT" },
+            { value: "ETH-USDT-SWAP", label: "ETH-USDT 永续" },
+          ],
+        },
+        binance: {
+          label: "Binance",
+          bars: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "1w", "1M"],
+          instruments: [
+            { value: "BTCUSDT", label: "BTCUSDT" },
+            { value: "ETHUSDT", label: "ETHUSDT" },
+          ],
+        },
+      };
       let currentTheme = "dark";
       let useReversedColors = false;
       let lastTimestamp = null;
@@ -762,12 +784,41 @@
       function updateMeta(payload, extraNote = "") {
         const totalCount = chart ? chart.getDataList().length : 0;
         const note = extraNote ? ` | ${extraNote}` : "";
-        meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${totalCount}${note}`;
+        const sourceLabel = dataSources[payload.source]?.label || payload.source || "OKX";
+        meta.textContent = `数据源：${sourceLabel} | 标的：${payload.instId} | 周期：${payload.bar} | 根数：${totalCount}${note}`;
+      }
+
+      function setSelectOptions(select, options, currentValue) {
+        select.innerHTML = "";
+        options.forEach((option) => {
+          const node = document.createElement("option");
+          if (typeof option === "string") {
+            node.value = option;
+            node.textContent = option;
+          } else {
+            node.value = option.value;
+            node.textContent = option.label;
+          }
+          select.appendChild(node);
+        });
+        if (currentValue && [...select.options].some((opt) => opt.value === currentValue)) {
+          select.value = currentValue;
+        } else if (select.options.length) {
+          select.value = select.options[0].value;
+        }
+      }
+
+      function applySourceOptions() {
+        const source = sourceSelect.value;
+        const config = dataSources[source] ?? dataSources.okx;
+        setSelectOptions(barSelect, config.bars, barSelect.value);
+        setSelectOptions(instSelect, config.instruments, instSelect.value);
       }
 
       async function loadRecentCandles() {
         const bar = barSelect.value;
         const instId = instSelect.value;
+        const source = sourceSelect.value;
         refreshBtn.disabled = true;
         refreshBtn.textContent = "加载中...";
         if (!chart) {
@@ -781,6 +832,7 @@
           const params = new URLSearchParams({
             bar,
             inst_id: instId,
+            source,
           });
           params.set("since_ts", String(lastTimestamp));
           const response = await fetch(`/api/candles?${params.toString()}`);
@@ -808,6 +860,7 @@
       async function loadInitialCandles() {
         const bar = barSelect.value;
         const instId = instSelect.value;
+        const source = sourceSelect.value;
         const token = ++historyLoadToken;
         historyLoadInFlight = true;
         refreshBtn.disabled = true;
@@ -820,6 +873,7 @@
             bar,
             inst_id: instId,
             limit: "300",
+            source,
           });
           const response = await fetch(`/api/candles?${params.toString()}`);
           if (!response.ok) {
@@ -833,8 +887,10 @@
           applyPaneBorders();
           updatePaneHeights();
           updateLastTimestamp(sortedData);
-          updateMeta(payload, "补全中");
-          loadFullHistory(token);
+          updateMeta(payload, source === "binance" ? "" : "补全中");
+          if (source !== "binance") {
+            loadFullHistory(token);
+          }
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
         } finally {
@@ -846,6 +902,7 @@
       async function loadFullHistory(token) {
         const bar = barSelect.value;
         const instId = instSelect.value;
+        const source = sourceSelect.value;
         if (!chart) {
           return;
         }
@@ -854,6 +911,7 @@
             bar,
             inst_id: instId,
             all_data: "true",
+            source,
           });
           const response = await fetch(`/api/candles?${params.toString()}`);
           if (!response.ok) {
@@ -911,6 +969,7 @@
         try {
           const params = new URLSearchParams({
             inst_id: instSelect.value,
+            source: sourceSelect.value,
           });
           const response = await fetch(`/api/ticker?${params.toString()}`);
           if (!response.ok) {
@@ -954,6 +1013,7 @@
           const params = new URLSearchParams({
             inst_id: instSelect.value,
             depth: "20",
+            source: sourceSelect.value,
           });
           const response = await fetch(`/api/orderbook?${params.toString()}`);
           if (!response.ok) {
@@ -1001,6 +1061,18 @@
         loadInitialCandles();
         loadOrderBook();
       });
+      sourceSelect.addEventListener("change", () => {
+        setCookie("tautoSource", sourceSelect.value);
+        applySourceOptions();
+        lastTimestamp = null;
+        priceRefreshRequestId = 0;
+        priceRefreshLatestAppliedId = 0;
+        if (chart) {
+          chart.applyNewData([]);
+        }
+        loadInitialCandles();
+        loadOrderBook();
+      });
       refreshBtn.addEventListener("click", loadRecentCandles);
       windowInput.addEventListener("change", updateVolumeSpikeIndicator);
       windowInput.addEventListener("change", () => {
@@ -1036,6 +1108,11 @@
       }
 
       const savedBar = getCookie("tautoBar");
+      const savedSource = getCookie("tautoSource");
+      if (savedSource && [...sourceSelect.options].some((option) => option.value === savedSource)) {
+        sourceSelect.value = savedSource;
+      }
+      applySourceOptions();
       if (savedBar && [...barSelect.options].some((option) => option.value === savedBar)) {
         barSelect.value = savedBar;
       }
