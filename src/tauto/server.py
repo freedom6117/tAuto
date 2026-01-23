@@ -6,6 +6,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Optional
+import time
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -119,9 +120,21 @@ def get_orderbook(
     book = okx_client.get_order_book(inst_id, depth=depth)
     if not book:
         raise HTTPException(status_code=502, detail="Order book data unavailable")
+    ts_value = book.get("ts")
+    ts_ms = int(ts_value) if ts_value is not None else int(time.time() * 1000)
+    try:
+        store.upsert_orderbook_snapshot(
+            inst_id=inst_id,
+            ts_ms=ts_ms,
+            bids=book.get("bids", []),
+            asks=book.get("asks", []),
+            depth=depth,
+        )
+    except Exception:  # noqa: BLE001 - avoid breaking API on persistence errors
+        logging.getLogger(__name__).exception("Failed to store order book snapshot")
     return {
         "instId": inst_id,
-        "ts": book.get("ts"),
+        "ts": ts_ms,
         "bids": book.get("bids", []),
         "asks": book.get("asks", []),
     }

@@ -57,6 +57,7 @@
         gap: 16px;
         background: var(--panel);
         border-bottom: 1px solid var(--panel-border);
+        flex-wrap: wrap;
       }
 
       h1 {
@@ -70,6 +71,7 @@
         display: flex;
         align-items: center;
         gap: 12px;
+        flex-wrap: wrap;
       }
 
       select,
@@ -100,6 +102,34 @@
 
       .control-group input {
         width: 72px;
+      }
+
+      .ma-toggles {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .ma-label {
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+
+      .ma-toggle {
+        background: transparent;
+        border: 1px solid var(--control-border);
+        color: var(--text-muted);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .ma-toggle.active {
+        color: var(--text-primary);
+        border-color: var(--tooltip-border);
+        box-shadow: 0 0 0 1px var(--tooltip-border);
       }
 
       .content {
@@ -234,6 +264,15 @@
         <button id="themeToggle" type="button">明亮模式</button>
         <button id="colorToggle" type="button">涨跌色互换</button>
         <button id="refreshBtn" type="button">刷新</button>
+        <div class="ma-toggles" aria-label="均线显示">
+          <span class="ma-label">均线</span>
+          <button class="ma-toggle active" type="button" data-ma-index="0" aria-pressed="true">MA5</button>
+          <button class="ma-toggle active" type="button" data-ma-index="1" aria-pressed="true">MA10</button>
+          <button class="ma-toggle active" type="button" data-ma-index="2" aria-pressed="true">MA20</button>
+          <button class="ma-toggle active" type="button" data-ma-index="3" aria-pressed="true">MA60</button>
+          <button class="ma-toggle active" type="button" data-ma-index="4" aria-pressed="true">MA120</button>
+          <button class="ma-toggle active" type="button" data-ma-index="5" aria-pressed="true">MA250</button>
+        </div>
       </div>
     </header>
     <main class="content">
@@ -269,6 +308,9 @@
       const candlePaneId = "candle_pane";
       const volumePaneId = "volume_pane";
       const macdPaneId = "macd_pane";
+      const maToggles = document.querySelectorAll(".ma-toggle");
+      const maColors = ["#f97316", "#06b6d4", "#22c55e", "#eab308", "#3b82f6", "#8b5cf6"];
+      const maVisibility = Array.from({ length: maColors.length }, () => true);
       let currentTheme = "dark";
       let useReversedColors = false;
       let lastTimestamp = null;
@@ -496,6 +538,27 @@
         colorToggle.textContent = useReversedColors ? "恢复默认色" : "涨跌色互换";
         setCookie("tautoColorMode", useReversedColors ? "reversed" : "normal");
         renderOrderBook(lastOrderBook);
+      }
+
+      function applyMALineStyles() {
+        if (!chart) {
+          return;
+        }
+        const lines = maColors.map((color, index) => {
+          const visible = maVisibility[index];
+          return {
+            color: visible ? color : "transparent",
+            size: visible ? 1 : 0,
+            style: "solid",
+          };
+        });
+        chart.overrideIndicator(
+          {
+            name: "MA",
+            styles: { lines },
+          },
+          candlePaneId,
+        );
       }
 
       function formatNumber(value) {
@@ -954,6 +1017,18 @@
         useReversedColors = !useReversedColors;
         applyCandleColors();
       });
+      maToggles.forEach((toggle) => {
+        toggle.addEventListener("click", () => {
+          const index = Number(toggle.dataset.maIndex);
+          if (!Number.isFinite(index)) {
+            return;
+          }
+          maVisibility[index] = !maVisibility[index];
+          toggle.classList.toggle("active", maVisibility[index]);
+          toggle.setAttribute("aria-pressed", maVisibility[index] ? "true" : "false");
+          applyMALineStyles();
+        });
+      });
       if (chart) {
         chart.subscribeAction(klinecharts.ActionType.OnCrosshairChange, (payload) => {
           updateVolumeTooltip(payload);
@@ -981,6 +1056,7 @@
       const savedColorMode = getCookie("tautoColorMode");
       useReversedColors = savedColorMode === "reversed";
       applyCandleColors();
+      applyMALineStyles();
       loadInitialCandles();
       resizeOrderBookCanvas();
       loadOrderBook();
@@ -988,7 +1064,7 @@
       window.addEventListener("resize", resizeOrderBookCanvas);
       setInterval(loadRecentCandles, 15000);
       setInterval(refreshRealtimePrice, 100);
-      setInterval(loadOrderBook, 2000);
+      setInterval(loadOrderBook, 1000);
     </script>
   </body>
 </html>

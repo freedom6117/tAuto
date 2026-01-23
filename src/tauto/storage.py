@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Protocol, Sequence
@@ -60,6 +61,16 @@ class DatabaseBackend(Protocol):
     def delete_older_than(self, cutoff_ts: int) -> int:
         """Delete data older than the given timestamp. Returns deleted rows."""
 
+    def upsert_orderbook_snapshot(
+        self,
+        inst_id: str,
+        ts_ms: int,
+        bids: Sequence[Sequence[object]],
+        asks: Sequence[Sequence[object]],
+        depth: Optional[int] = None,
+    ) -> None:
+        """Upsert order book snapshot data into storage."""
+
 
 class CacheBackend(Protocol):
     """Optional cache abstraction (e.g. Redis) for future use."""
@@ -106,6 +117,22 @@ class SqliteCandleStore:
             )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_candles_ts ON candles(ts)"
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS orderbook_snapshots (
+                    inst_id TEXT NOT NULL,
+                    ts_sec INTEGER NOT NULL,
+                    ts_ms INTEGER NOT NULL,
+                    depth INTEGER,
+                    bids TEXT NOT NULL,
+                    asks TEXT NOT NULL,
+                    PRIMARY KEY (inst_id, ts_sec)
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_orderbook_ts ON orderbook_snapshots(ts_sec)"
             )
 
     def upsert_candles(self, candles: Sequence[CandleStick]) -> None:
@@ -240,6 +267,38 @@ class SqliteCandleStore:
                 (cutoff_ts,),
             )
             return cursor.rowcount
+
+    def upsert_orderbook_snapshot(
+        self,
+        inst_id: str,
+        ts_ms: int,
+        bids: Sequence[Sequence[object]],
+        asks: Sequence[Sequence[object]],
+        depth: Optional[int] = None,
+    ) -> None:
+        ts_sec = int(ts_ms) // 1000
+        payload = (
+            inst_id,
+            ts_sec,
+            int(ts_ms),
+            depth,
+            json.dumps(bids, separators=(",", ":"), ensure_ascii=False),
+            json.dumps(asks, separators=(",", ":"), ensure_ascii=False),
+        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO orderbook_snapshots (
+                    inst_id, ts_sec, ts_ms, depth, bids, asks
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(inst_id, ts_sec) DO UPDATE SET
+                    ts_ms=excluded.ts_ms,
+                    depth=excluded.depth,
+                    bids=excluded.bids,
+                    asks=excluded.asks
+                """,
+                payload,
+            )
 
 
 def subtract_months(reference: datetime, months: int) -> datetime:
