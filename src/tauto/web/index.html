@@ -699,6 +699,13 @@
       const maColorInputs = document.querySelectorAll(".ma-color-input");
       const maColors = ["#f97316", "#06b6d4", "#22c55e", "#eab308", "#3b82f6", "#8b5cf6"];
       const maVisibility = Array.from({ length: maColors.length }, () => true);
+      const volSpikeStyle = {
+        color: "#f472b6",
+        borderColor: "#fbcfe8",
+        borderSize: 2,
+        size: 8,
+      };
+      const volSpikeBlink = { on: true };
       const dataSources = {
         okx: {
           label: "OKX",
@@ -849,10 +856,10 @@
           styles: {
             circles: [
               {
-                color: "#f5d90a",
-                borderColor: "#fff7a8",
-                borderSize: 2,
-                size: 6,
+                color: volSpikeStyle.color,
+                borderColor: volSpikeStyle.borderColor,
+                borderSize: volSpikeStyle.borderSize,
+                size: volSpikeStyle.size,
               },
             ],
           },
@@ -1902,6 +1909,31 @@
           loadMoreHistory(timestamp);
         });
       }
+
+      setInterval(() => {
+        if (!chart) {
+          return;
+        }
+        volSpikeBlink.on = !volSpikeBlink.on;
+        const color = volSpikeBlink.on ? volSpikeStyle.color : "transparent";
+        const borderColor = volSpikeBlink.on ? volSpikeStyle.borderColor : "transparent";
+        chart.overrideIndicator(
+          {
+            name: "VOL_SPIKE",
+            styles: {
+              circles: [
+                {
+                  color,
+                  borderColor,
+                  borderSize: volSpikeStyle.borderSize,
+                  size: volSpikeStyle.size,
+                },
+              ],
+            },
+          },
+          volumePaneId,
+        );
+      }, 700);
 
       const savedBar = getCookie("tautoBar");
       const savedSource = getCookie("tautoSource");
