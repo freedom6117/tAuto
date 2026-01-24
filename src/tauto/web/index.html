@@ -193,11 +193,13 @@
         justify-content: space-between;
         font-size: 13px;
         color: var(--text-muted);
+        gap: 8px;
       }
 
       .orderbook-title {
         font-weight: 600;
         color: var(--text-primary);
+        white-space: nowrap;
       }
 
       #orderbookCanvas {
@@ -205,6 +207,99 @@
         flex: 1;
         border-radius: 6px;
         background: var(--control-bg);
+      }
+
+      .orderbook-tabs {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .orderbook-tab {
+        border: 1px solid var(--control-border);
+        background: transparent;
+        color: var(--text-muted);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .orderbook-tab.active {
+        color: var(--text-primary);
+        border-color: var(--tooltip-border);
+        box-shadow: 0 0 0 1px var(--tooltip-border);
+      }
+
+      .orderbook-body {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        flex: 1;
+        min-height: 0;
+      }
+
+      .orderbook-panel-content {
+        display: none;
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .orderbook-panel-content.active {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .orderbook-spike-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .orderbook-spike-controls label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .orderbook-spike-controls input {
+        width: 72px;
+        padding: 4px 6px;
+        font-size: 12px;
+      }
+
+      .orderbook-spike-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+
+      .orderbook-spike-table th,
+      .orderbook-spike-table td {
+        padding: 4px 2px;
+        border-bottom: 1px solid var(--panel-border);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .orderbook-spike-table th {
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+
+      .orderbook-spike-table th:first-child,
+      .orderbook-spike-table td:first-child {
+        text-align: left;
+      }
+
+      .orderbook-spike-empty {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-align: center;
+        padding: 12px 0;
       }
 
       .meta {
@@ -287,7 +382,28 @@
             <span class="orderbook-title">挂单量</span>
             <span id="orderbookStatus">--</span>
           </div>
-          <canvas id="orderbookCanvas"></canvas>
+          <div class="orderbook-body">
+            <div class="orderbook-tabs" role="tablist" aria-label="挂单量视图">
+              <button class="orderbook-tab active" type="button" data-tab="depth" role="tab" aria-selected="true">
+                深度
+              </button>
+              <button class="orderbook-tab" type="button" data-tab="spike" role="tab" aria-selected="false">
+                爆单/撤单
+              </button>
+            </div>
+            <div class="orderbook-panel-content active" data-tab-panel="depth" role="tabpanel">
+              <canvas id="orderbookCanvas"></canvas>
+            </div>
+            <div class="orderbook-panel-content" data-tab-panel="spike" role="tabpanel">
+              <div class="orderbook-spike-controls">
+                <label for="spikeWindowInput">参考时段t(s)</label>
+                <input id="spikeWindowInput" type="number" min="1" step="1" value="30" />
+                <label for="spikeThresholdInput">总阈值</label>
+                <input id="spikeThresholdInput" type="number" min="0" step="1" value="50000" />
+              </div>
+              <div id="spikeTableContainer"></div>
+            </div>
+          </div>
         </aside>
       </div>
     </main>
@@ -306,6 +422,11 @@
       const chartContainer = document.getElementById("chart");
       const orderbookCanvas = document.getElementById("orderbookCanvas");
       const orderbookStatus = document.getElementById("orderbookStatus");
+      const orderbookTabButtons = document.querySelectorAll(".orderbook-tab");
+      const orderbookTabPanels = document.querySelectorAll(".orderbook-panel-content");
+      const spikeWindowInput = document.getElementById("spikeWindowInput");
+      const spikeThresholdInput = document.getElementById("spikeThresholdInput");
+      const spikeTableContainer = document.getElementById("spikeTableContainer");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
       const candlePaneId = "candle_pane";
       const volumePaneId = "volume_pane";
@@ -341,10 +462,12 @@
       let orderBookRequestId = 0;
       let orderBookLatestAppliedId = 0;
       let lastOrderBook = null;
+      let orderBookHistory = [];
       const orderBookContext = orderbookCanvas?.getContext("2d") ?? null;
       let historyLoadToken = 0;
       let historyLoadInFlight = false;
       const HISTORY_BATCH_SIZE = 500;
+      const ORDERBOOK_HISTORY_LIMIT_MS = 10 * 60 * 1000;
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
       } else {
@@ -507,6 +630,7 @@
         themeToggle.textContent = theme === "light" ? "暗黑模式" : "明亮模式";
         setCookie("tautoTheme", currentTheme);
         renderOrderBook(lastOrderBook);
+        renderSpikeTable();
       }
 
       function applyCandleColors() {
@@ -561,6 +685,7 @@
         colorToggle.textContent = useReversedColors ? "恢复默认色" : "涨跌色互换";
         setCookie("tautoColorMode", useReversedColors ? "reversed" : "normal");
         renderOrderBook(lastOrderBook);
+        renderSpikeTable();
       }
 
       function applyMALineStyles() {
@@ -600,6 +725,16 @@
         return Number(value).toLocaleString(undefined, {
           maximumFractionDigits: 4,
         });
+      }
+
+      function getSpikeWindowSeconds() {
+        const value = Math.floor(Number(spikeWindowInput?.value));
+        return Number.isFinite(value) && value > 0 ? value : 30;
+      }
+
+      function getSpikeThreshold() {
+        const value = Number(spikeThresholdInput?.value);
+        return Number.isFinite(value) && value >= 0 ? value : 0;
       }
 
       function getOrderBookColors() {
@@ -642,6 +777,140 @@
           bids,
           asks,
         };
+      }
+
+      function pruneOrderBookHistory(referenceTs) {
+        if (!referenceTs) {
+          return;
+        }
+        const cutoff = referenceTs - ORDERBOOK_HISTORY_LIMIT_MS;
+        orderBookHistory = orderBookHistory.filter((entry) => entry.ts && entry.ts >= cutoff);
+      }
+
+      function addOrderBookSnapshot(book) {
+        if (!book || !book.ts) {
+          return;
+        }
+        const lastEntry = orderBookHistory[orderBookHistory.length - 1];
+        if (lastEntry && lastEntry.ts === book.ts) {
+          orderBookHistory[orderBookHistory.length - 1] = book;
+        } else {
+          orderBookHistory.push(book);
+        }
+        pruneOrderBookHistory(book.ts);
+      }
+
+      function findReferenceSnapshot(targetTs) {
+        for (let i = orderBookHistory.length - 1; i >= 0; i -= 1) {
+          const entry = orderBookHistory[i];
+          if (entry.ts && entry.ts <= targetTs) {
+            return entry;
+          }
+        }
+        return null;
+      }
+
+      function buildSizeMap(list) {
+        const map = new Map();
+        list.forEach((item) => {
+          map.set(String(item.price), item.size);
+        });
+        return map;
+      }
+
+      function computeOrderBookSpikes(current, reference, threshold) {
+        if (!current || !reference) {
+          return [];
+        }
+        const rows = [];
+        const sides = [
+          { label: "买", data: current.bids, ref: reference.bids },
+          { label: "卖", data: current.asks, ref: reference.asks },
+        ];
+        sides.forEach((side) => {
+          const currentMap = buildSizeMap(side.data);
+          const refMap = buildSizeMap(side.ref);
+          const priceSet = new Set([...currentMap.keys(), ...refMap.keys()]);
+          priceSet.forEach((priceKey) => {
+            const price = Number(priceKey);
+            if (!Number.isFinite(price)) {
+              return;
+            }
+            const currentSize = currentMap.get(priceKey) ?? 0;
+            const refSize = refMap.get(priceKey) ?? 0;
+            const delta = currentSize - refSize;
+            if (!delta) {
+              return;
+            }
+            const notional = Math.abs(delta) * price;
+            if (notional < threshold) {
+              return;
+            }
+            rows.push({
+              side: side.label,
+              price,
+              delta,
+              notional,
+            });
+          });
+        });
+        return rows.sort((a, b) => b.notional - a.notional);
+      }
+
+      function renderSpikeTable() {
+        if (!spikeTableContainer) {
+          return;
+        }
+        if (!lastOrderBook) {
+          spikeTableContainer.innerHTML = '<div class="orderbook-spike-empty">暂无挂单数据</div>';
+          return;
+        }
+        const windowSeconds = getSpikeWindowSeconds();
+        const targetTs = (lastOrderBook.ts ?? Date.now()) - windowSeconds * 1000;
+        const reference = findReferenceSnapshot(targetTs);
+        if (!reference) {
+          spikeTableContainer.innerHTML = '<div class="orderbook-spike-empty">参考数据不足</div>';
+          return;
+        }
+        const threshold = getSpikeThreshold();
+        const rows = computeOrderBookSpikes(lastOrderBook, reference, threshold);
+        if (!rows.length) {
+          spikeTableContainer.innerHTML = '<div class="orderbook-spike-empty">暂无触发阈值的挂单变化</div>';
+          return;
+        }
+        const { bidColor, askColor } = getOrderBookColors();
+        const bodyHtml = rows
+          .slice(0, 20)
+          .map((row) => {
+            const typeLabel = row.delta > 0 ? "爆单" : "撤单";
+            const color = row.delta > 0 ? bidColor : askColor;
+            return `
+            <tr>
+              <td style="color:${color}">${typeLabel}</td>
+              <td>${row.side}</td>
+              <td>${formatCompactNumber(row.price)}</td>
+              <td>${formatCompactNumber(Math.abs(row.delta))}</td>
+              <td>${formatCompactNumber(row.notional)}</td>
+            </tr>
+          `;
+          })
+          .join("");
+        spikeTableContainer.innerHTML = `
+          <table class="orderbook-spike-table">
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>方向</th>
+                <th>价格</th>
+                <th>数量变化</th>
+                <th>变化值</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${bodyHtml}
+            </tbody>
+          </table>
+        `;
       }
 
       function renderOrderBook(book) {
@@ -1009,13 +1278,37 @@
           }
           orderBookLatestAppliedId = requestId;
           lastOrderBook = normalizeOrderBook(payload);
+          addOrderBookSnapshot(lastOrderBook);
           renderOrderBook(lastOrderBook);
+          renderSpikeTable();
           const ts = lastOrderBook.ts ? new Date(lastOrderBook.ts).toLocaleTimeString() : "--";
           orderbookStatus.textContent = `更新 ${ts}`;
         } catch (error) {
           orderbookStatus.textContent = "挂单获取失败";
         }
       }
+
+      orderbookTabButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const tab = button.dataset.tab;
+          if (!tab) {
+            return;
+          }
+          orderbookTabButtons.forEach((btn) => {
+            const isActive = btn.dataset.tab === tab;
+            btn.classList.toggle("active", isActive);
+            btn.setAttribute("aria-selected", isActive ? "true" : "false");
+          });
+          orderbookTabPanels.forEach((panel) => {
+            panel.classList.toggle("active", panel.dataset.tabPanel === tab);
+          });
+          if (tab === "spike") {
+            renderSpikeTable();
+          } else {
+            resizeOrderBookCanvas();
+          }
+        });
+      });
 
       barSelect.addEventListener("change", () => {
         lastTimestamp = null;
@@ -1041,6 +1334,7 @@
         if (chart) {
           chart.applyNewData([]);
         }
+        orderBookHistory = [];
         loadInitialCandles();
         loadOrderBook();
       });
@@ -1054,6 +1348,7 @@
         if (chart) {
           chart.applyNewData([]);
         }
+        orderBookHistory = [];
         loadInitialCandles();
         loadOrderBook();
       });
@@ -1066,6 +1361,8 @@
       multiplierInput.addEventListener("change", () => {
         setCookie("tautoMultiplier", multiplierInput.value);
       });
+      spikeWindowInput?.addEventListener("change", renderSpikeTable);
+      spikeThresholdInput?.addEventListener("change", renderSpikeTable);
       themeToggle.addEventListener("click", () => {
         setTheme(currentTheme === "light" ? "dark" : "light");
       });
