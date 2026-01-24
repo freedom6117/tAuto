@@ -783,12 +783,16 @@
             volumes.forEach((value, index) => {
               prefixSum[index + 1] = prefixSum[index] + value;
             });
+            const latestStartIndex = Math.max(0, volumes.length - windowSize);
+            const latestWindowSum = prefixSum[volumes.length] - prefixSum[latestStartIndex];
+            const latestWindowLength = volumes.length - latestStartIndex;
+            const latestMean = latestWindowLength > 0 ? latestWindowSum / latestWindowLength : 0;
             return volumes.map((volume, index) => {
               const startIndex = Math.max(0, index - windowSize + 1);
               const windowTotal = prefixSum[index + 1] - prefixSum[startIndex];
               const windowLength = index - startIndex + 1;
               const mean = windowLength > 0 ? windowTotal / windowLength : 0;
-              const isSpike = mean > 0 && volume > mean * multiplier;
+              const isSpike = latestMean > 0 && volume > latestMean * multiplier;
               return {
                 volume,
                 isSpike,
@@ -857,6 +861,11 @@
             const multiplier = Number(indicator.calcParams[1]);
             const buffer = [];
             let sum = 0;
+            const volumes = dataList.map((item) => Number(item.volume) || 0);
+            const latestStartIndex = Math.max(0, volumes.length - windowSize);
+            const latestWindow = volumes.slice(latestStartIndex);
+            const latestSum = latestWindow.reduce((acc, volume) => acc + volume, 0);
+            const latestMean = latestWindow.length ? latestSum / latestWindow.length : 0;
             return dataList.map((item) => {
               const volume = Number(item.volume) || 0;
               buffer.push(volume);
@@ -865,7 +874,7 @@
                 sum -= buffer.shift();
               }
               const mean = buffer.length ? sum / buffer.length : 0;
-              const spike = mean > 0 && volume > mean * multiplier ? volume : null;
+              const spike = latestMean > 0 && volume > latestMean * multiplier ? volume : null;
               return {
                 spike,
                 avgVolume: mean,
