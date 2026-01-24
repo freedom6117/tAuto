@@ -144,7 +144,7 @@
         align-items: stretch;
         border: 1px solid var(--control-border);
         border-radius: 999px;
-        overflow: hidden;
+        overflow: visible;
         background: transparent;
       }
 
@@ -1469,6 +1469,17 @@
         }
       }
 
+      function resetHistoryState() {
+        lastTimestamp = null;
+        priceRefreshRequestId = 0;
+        priceRefreshLatestAppliedId = 0;
+        historyLoadInFlight = false;
+        historyLoadToken += 1;
+        if (chart) {
+          chart.applyNewData([]);
+        }
+      }
+
       function updateMeta(payload, extraNote = "") {
         const totalCount = chart ? chart.getDataList().length : 0;
         const note = extraNote ? ` | ${extraNote}` : "";
@@ -1507,6 +1518,9 @@
         const bar = barSelect.value;
         const instId = instSelect.value;
         const source = sourceSelect.value;
+        if (historyLoadInFlight) {
+          return;
+        }
         refreshBtn.disabled = true;
         refreshBtn.textContent = "加载中...";
         if (!chart) {
@@ -1568,6 +1582,9 @@
             throw new Error(`请求失败：${response.status}`);
           }
           const payload = await response.json();
+          if (token !== historyLoadToken) {
+            return;
+          }
           const data = normalizeCandles(payload.data);
           const sortedData = data.slice().sort((a, b) => a.timestamp - b.timestamp);
           chart.applyNewData(sortedData);
@@ -1579,9 +1596,11 @@
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
         } finally {
-          historyLoadInFlight = false;
-          refreshBtn.disabled = false;
-          refreshBtn.textContent = "刷新";
+          if (token === historyLoadToken) {
+            historyLoadInFlight = false;
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = "刷新";
+          }
         }
       }
 
@@ -1729,13 +1748,7 @@
       });
 
       barSelect.addEventListener("change", () => {
-        lastTimestamp = null;
-        priceRefreshRequestId = 0;
-        priceRefreshLatestAppliedId = 0;
-        historyLoadInFlight = false;
-        if (chart) {
-          chart.applyNewData([]);
-        }
+        resetHistoryState();
         loadInitialCandles();
       });
       barSelect.addEventListener("change", () => {
@@ -1745,13 +1758,7 @@
         setCookie("tautoInst", instSelect.value);
       });
       instSelect.addEventListener("change", () => {
-        lastTimestamp = null;
-        priceRefreshRequestId = 0;
-        priceRefreshLatestAppliedId = 0;
-        historyLoadInFlight = false;
-        if (chart) {
-          chart.applyNewData([]);
-        }
+        resetHistoryState();
         orderBookHistory = [];
         loadInitialCandles();
         loadOrderBook();
@@ -1759,13 +1766,7 @@
       sourceSelect.addEventListener("change", () => {
         setCookie("tautoSource", sourceSelect.value);
         applySourceOptions();
-        lastTimestamp = null;
-        priceRefreshRequestId = 0;
-        priceRefreshLatestAppliedId = 0;
-        historyLoadInFlight = false;
-        if (chart) {
-          chart.applyNewData([]);
-        }
+        resetHistoryState();
         orderBookHistory = [];
         loadInitialCandles();
         loadOrderBook();
