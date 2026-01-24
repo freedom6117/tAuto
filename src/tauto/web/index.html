@@ -892,6 +892,7 @@
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
         } finally {
+          historyLoadInFlight = false;
           refreshBtn.disabled = false;
           refreshBtn.textContent = "刷新";
         }

@@ -170,26 +170,32 @@ def get_ticker(
 ) -> dict:
     if source not in VALID_SOURCES:
         raise HTTPException(status_code=400, detail="Unsupported data source")
-    if source == "binance":
-        ticker = binance_client.get_ticker(inst_id)
+    try:
+        if source == "binance":
+            ticker = binance_client.get_ticker(inst_id)
+            if not ticker:
+                raise HTTPException(status_code=502, detail="Ticker data unavailable")
+            ts_ms = int(time.time() * 1000)
+            return {
+                "instId": inst_id,
+                "last": ticker.get("price"),
+                "ts": ts_ms,
+                "source": source,
+            }
+        ticker = okx_client.get_ticker(inst_id)
         if not ticker:
             raise HTTPException(status_code=502, detail="Ticker data unavailable")
-        ts_ms = int(time.time() * 1000)
         return {
             "instId": inst_id,
-            "last": ticker.get("price"),
-            "ts": ts_ms,
+            "last": ticker.get("last"),
+            "ts": ticker.get("ts"),
             "source": source,
         }
-    ticker = okx_client.get_ticker(inst_id)
-    if not ticker:
-        raise HTTPException(status_code=502, detail="Ticker data unavailable")
-    return {
-        "instId": inst_id,
-        "last": ticker.get("last"),
-        "ts": ticker.get("ts"),
-        "source": source,
-    }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - map upstream errors to gateway error
+        logging.getLogger(__name__).warning("Ticker fetch failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Ticker data unavailable") from exc
 
 
 @app.get("/api/orderbook")
