@@ -103,6 +103,9 @@ def get_candles(
     since_ts: Optional[int] = Query(
         None, description="Return candles newer than the provided timestamp."
     ),
+    end_ts: Optional[int] = Query(
+        None, description="Return candles older than or equal to the provided timestamp."
+    ),
 ) -> dict:
     if source not in VALID_SOURCES:
         raise HTTPException(status_code=400, detail="Unsupported data source")
@@ -122,6 +125,7 @@ def get_candles(
                 bar=normalized,
                 limit=resolved_limit,
                 start_time=start_time,
+                end_time=end_ts,
             )
             candles = store.fetch_candles(
                 "binance",
@@ -129,6 +133,7 @@ def get_candles(
                 normalized,
                 limit=resolved_limit,
                 start_ts=start_time,
+                end_ts=end_ts,
             )
             payload = [_to_kline_payload(candle) for candle in candles]
         return {
@@ -146,7 +151,7 @@ def get_candles(
     if since_ts is not None and not all_data:
         start_ts = since_ts + 1
     candles = store.fetch_candles(
-        "okx", inst_id, normalized, limit=resolved_limit, start_ts=start_ts
+        "okx", inst_id, normalized, limit=resolved_limit, start_ts=start_ts, end_ts=end_ts
     )
     payload = [_to_kline_payload(candle) for candle in candles]
     return {
