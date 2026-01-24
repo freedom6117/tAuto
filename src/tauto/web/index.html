@@ -139,20 +139,105 @@
         color: var(--text-muted);
       }
 
+      .ma-toggle-group {
+        display: inline-flex;
+        align-items: stretch;
+        border: 1px solid var(--control-border);
+        border-radius: 999px;
+        overflow: hidden;
+        background: transparent;
+      }
+
       .ma-toggle {
         background: transparent;
-        border: 1px solid var(--control-border);
+        border: none;
         color: var(--text-muted);
-        border-radius: 999px;
         padding: 4px 10px;
         font-size: 12px;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
       }
 
       .ma-toggle.active {
         color: var(--text-primary);
         border-color: var(--tooltip-border);
         box-shadow: 0 0 0 1px var(--tooltip-border);
+      }
+
+      .ma-color-dropdown {
+        position: relative;
+        display: inline-flex;
+        align-items: stretch;
+      }
+
+      .ma-color-trigger {
+        border: none;
+        border-left: 1px solid var(--control-border);
+        background: transparent;
+        color: var(--text-muted);
+        padding: 4px 8px;
+        font-size: 12px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .ma-color-trigger::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--ma-color, #f97316);
+        display: inline-block;
+      }
+
+      .ma-color-dropdown.open .ma-color-trigger {
+        color: var(--text-primary);
+      }
+
+      .ma-color-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        padding: 10px;
+        min-width: 180px;
+        display: none;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 20;
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+      }
+
+      .ma-color-dropdown.open .ma-color-menu {
+        display: flex;
+      }
+
+      .ma-color-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .ma-color-row label {
+        font-size: 12px;
+        color: var(--text-muted);
+        min-width: 36px;
+      }
+
+      .ma-color-row input {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .ma-color-tip {
+        font-size: 11px;
+        color: var(--text-muted);
       }
 
       .content {
@@ -392,12 +477,156 @@
         <div class="controls-row secondary">
           <div class="ma-toggles" aria-label="均线显示">
             <span class="ma-label">均线</span>
-            <button class="ma-toggle active" type="button" data-ma-index="0" aria-pressed="true">MA5</button>
-            <button class="ma-toggle active" type="button" data-ma-index="1" aria-pressed="true">MA10</button>
-            <button class="ma-toggle active" type="button" data-ma-index="2" aria-pressed="true">MA20</button>
-            <button class="ma-toggle active" type="button" data-ma-index="3" aria-pressed="true">MA60</button>
-            <button class="ma-toggle active" type="button" data-ma-index="4" aria-pressed="true">MA120</button>
-            <button class="ma-toggle active" type="button" data-ma-index="5" aria-pressed="true">MA250</button>
+            <div class="ma-toggle-group" data-ma-index="0">
+              <button class="ma-toggle active" type="button" data-ma-index="0" aria-pressed="true">MA5</button>
+              <div class="ma-color-dropdown" data-ma-index="0">
+                <button class="ma-color-trigger" type="button" aria-label="MA5 颜色">▾</button>
+                <div class="ma-color-menu" role="menu">
+                  <div class="ma-color-row">
+                    <label>预设</label>
+                    <select class="ma-color-select" data-ma-index="0">
+                      <option value="#f97316">橙色</option>
+                      <option value="#06b6d4">青色</option>
+                      <option value="#22c55e">绿色</option>
+                      <option value="#eab308">黄色</option>
+                      <option value="#3b82f6">蓝色</option>
+                      <option value="#8b5cf6">紫色</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                  </div>
+                  <div class="ma-color-row">
+                    <label>RGB</label>
+                    <input class="ma-color-input" data-ma-index="0" placeholder="255, 120, 20" />
+                  </div>
+                  <div class="ma-color-tip">可输入 RGB(255,0,0) 或 255,0,0</div>
+                </div>
+              </div>
+            </div>
+            <div class="ma-toggle-group" data-ma-index="1">
+              <button class="ma-toggle active" type="button" data-ma-index="1" aria-pressed="true">MA10</button>
+              <div class="ma-color-dropdown" data-ma-index="1">
+                <button class="ma-color-trigger" type="button" aria-label="MA10 颜色">▾</button>
+                <div class="ma-color-menu" role="menu">
+                  <div class="ma-color-row">
+                    <label>预设</label>
+                    <select class="ma-color-select" data-ma-index="1">
+                      <option value="#f97316">橙色</option>
+                      <option value="#06b6d4">青色</option>
+                      <option value="#22c55e">绿色</option>
+                      <option value="#eab308">黄色</option>
+                      <option value="#3b82f6">蓝色</option>
+                      <option value="#8b5cf6">紫色</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                  </div>
+                  <div class="ma-color-row">
+                    <label>RGB</label>
+                    <input class="ma-color-input" data-ma-index="1" placeholder="6, 182, 212" />
+                  </div>
+                  <div class="ma-color-tip">可输入 RGB(255,0,0) 或 255,0,0</div>
+                </div>
+              </div>
+            </div>
+            <div class="ma-toggle-group" data-ma-index="2">
+              <button class="ma-toggle active" type="button" data-ma-index="2" aria-pressed="true">MA20</button>
+              <div class="ma-color-dropdown" data-ma-index="2">
+                <button class="ma-color-trigger" type="button" aria-label="MA20 颜色">▾</button>
+                <div class="ma-color-menu" role="menu">
+                  <div class="ma-color-row">
+                    <label>预设</label>
+                    <select class="ma-color-select" data-ma-index="2">
+                      <option value="#f97316">橙色</option>
+                      <option value="#06b6d4">青色</option>
+                      <option value="#22c55e">绿色</option>
+                      <option value="#eab308">黄色</option>
+                      <option value="#3b82f6">蓝色</option>
+                      <option value="#8b5cf6">紫色</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                  </div>
+                  <div class="ma-color-row">
+                    <label>RGB</label>
+                    <input class="ma-color-input" data-ma-index="2" placeholder="34, 197, 94" />
+                  </div>
+                  <div class="ma-color-tip">可输入 RGB(255,0,0) 或 255,0,0</div>
+                </div>
+              </div>
+            </div>
+            <div class="ma-toggle-group" data-ma-index="3">
+              <button class="ma-toggle active" type="button" data-ma-index="3" aria-pressed="true">MA60</button>
+              <div class="ma-color-dropdown" data-ma-index="3">
+                <button class="ma-color-trigger" type="button" aria-label="MA60 颜色">▾</button>
+                <div class="ma-color-menu" role="menu">
+                  <div class="ma-color-row">
+                    <label>预设</label>
+                    <select class="ma-color-select" data-ma-index="3">
+                      <option value="#f97316">橙色</option>
+                      <option value="#06b6d4">青色</option>
+                      <option value="#22c55e">绿色</option>
+                      <option value="#eab308">黄色</option>
+                      <option value="#3b82f6">蓝色</option>
+                      <option value="#8b5cf6">紫色</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                  </div>
+                  <div class="ma-color-row">
+                    <label>RGB</label>
+                    <input class="ma-color-input" data-ma-index="3" placeholder="234, 179, 8" />
+                  </div>
+                  <div class="ma-color-tip">可输入 RGB(255,0,0) 或 255,0,0</div>
+                </div>
+              </div>
+            </div>
+            <div class="ma-toggle-group" data-ma-index="4">
+              <button class="ma-toggle active" type="button" data-ma-index="4" aria-pressed="true">MA120</button>
+              <div class="ma-color-dropdown" data-ma-index="4">
+                <button class="ma-color-trigger" type="button" aria-label="MA120 颜色">▾</button>
+                <div class="ma-color-menu" role="menu">
+                  <div class="ma-color-row">
+                    <label>预设</label>
+                    <select class="ma-color-select" data-ma-index="4">
+                      <option value="#f97316">橙色</option>
+                      <option value="#06b6d4">青色</option>
+                      <option value="#22c55e">绿色</option>
+                      <option value="#eab308">黄色</option>
+                      <option value="#3b82f6">蓝色</option>
+                      <option value="#8b5cf6">紫色</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                  </div>
+                  <div class="ma-color-row">
+                    <label>RGB</label>
+                    <input class="ma-color-input" data-ma-index="4" placeholder="59, 130, 246" />
+                  </div>
+                  <div class="ma-color-tip">可输入 RGB(255,0,0) 或 255,0,0</div>
+                </div>
+              </div>
+            </div>
+            <div class="ma-toggle-group" data-ma-index="5">
+              <button class="ma-toggle active" type="button" data-ma-index="5" aria-pressed="true">MA250</button>
+              <div class="ma-color-dropdown" data-ma-index="5">
+                <button class="ma-color-trigger" type="button" aria-label="MA250 颜色">▾</button>
+                <div class="ma-color-menu" role="menu">
+                  <div class="ma-color-row">
+                    <label>预设</label>
+                    <select class="ma-color-select" data-ma-index="5">
+                      <option value="#f97316">橙色</option>
+                      <option value="#06b6d4">青色</option>
+                      <option value="#22c55e">绿色</option>
+                      <option value="#eab308">黄色</option>
+                      <option value="#3b82f6">蓝色</option>
+                      <option value="#8b5cf6">紫色</option>
+                      <option value="custom">自定义</option>
+                    </select>
+                  </div>
+                  <div class="ma-color-row">
+                    <label>RGB</label>
+                    <input class="ma-color-input" data-ma-index="5" placeholder="139, 92, 246" />
+                  </div>
+                  <div class="ma-color-tip">可输入 RGB(255,0,0) 或 255,0,0</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -463,6 +692,11 @@
       const volumePaneId = "volume_pane";
       const macdPaneId = "macd_pane";
       const maToggles = document.querySelectorAll(".ma-toggle");
+      const maToggleGroups = document.querySelectorAll(".ma-toggle-group");
+      const maColorDropdowns = document.querySelectorAll(".ma-color-dropdown");
+      const maColorTriggers = document.querySelectorAll(".ma-color-trigger");
+      const maColorSelects = document.querySelectorAll(".ma-color-select");
+      const maColorInputs = document.querySelectorAll(".ma-color-input");
       const maColors = ["#f97316", "#06b6d4", "#22c55e", "#eab308", "#3b82f6", "#8b5cf6"];
       const maVisibility = Array.from({ length: maColors.length }, () => true);
       const dataSources = {
@@ -487,6 +721,14 @@
       };
       let currentTheme = "dark";
       let useReversedColors = false;
+      const volumeSpikeColor = "#a855f7";
+      const getUpColor = () => (useReversedColors ? "#ef4444" : "#22c55e");
+      const getDownColor = () => (useReversedColors ? "#22c55e" : "#ef4444");
+      const getBaseVolumeColors = () => {
+        const upColor = getUpColor();
+        const downColor = getDownColor();
+        return { upColor, downColor, noChangeColor: upColor };
+      };
       let lastTimestamp = null;
       let priceRefreshRequestId = 0;
       let priceRefreshLatestAppliedId = 0;
@@ -506,6 +748,86 @@
           grid: {
             horizontal: { show: true, color: "#d0d7de", size: 1, style: "solid" },
             vertical: { show: true, color: "#d0d7de", size: 1, style: "solid" },
+          },
+        });
+        klinecharts.registerIndicator({
+          name: "VOL_CUSTOM",
+          shortName: "VOL",
+          series: klinecharts.IndicatorSeries.Volume,
+          calcParams: [60, 5],
+          figures: [
+            {
+              key: "volume",
+              title: "VOL: ",
+              type: "bar",
+              styles: ({ current }) => {
+                const indicatorData = current?.indicatorData ?? {};
+                const kLineData = current?.kLineData ?? {};
+                if (indicatorData.isSpike) {
+                  return { color: volumeSpikeColor };
+                }
+                const upColor = getUpColor();
+                const downColor = getDownColor();
+                return Number(kLineData.close) >= Number(kLineData.open) ? { color: upColor } : { color: downColor };
+              },
+            },
+          ],
+          styles: {
+            bars: [getBaseVolumeColors()],
+          },
+          calc: (dataList, indicator) => {
+            const windowSize = Math.max(1, Math.floor(indicator.calcParams[0]));
+            const multiplier = Number(indicator.calcParams[1]);
+            const buffer = [];
+            let sum = 0;
+            return dataList.map((item) => {
+              const volume = Number(item.volume) || 0;
+              buffer.push(volume);
+              sum += volume;
+              if (buffer.length > windowSize) {
+                sum -= buffer.shift();
+              }
+              const mean = buffer.length ? sum / buffer.length : 0;
+              const isSpike = mean > 0 && volume > mean * multiplier;
+              return {
+                volume,
+                isSpike,
+                avgVolume: mean,
+              };
+            });
+          },
+        });
+        klinecharts.registerIndicator({
+          name: "VOL_AVG_LINE",
+          shortName: "VOL均值",
+          series: klinecharts.IndicatorSeries.Volume,
+          calcParams: [60],
+          figures: [
+            {
+              key: "avgLine",
+              title: "均值: ",
+              type: "line",
+            },
+          ],
+          styles: {
+            lines: [
+              {
+                color: volumeSpikeColor,
+                size: 1,
+                style: "solid",
+              },
+            ],
+          },
+          calc: (dataList, indicator) => {
+            const windowSize = Math.max(1, Math.floor(indicator.calcParams[0]));
+            if (!dataList.length) {
+              return [];
+            }
+            const startIndex = Math.max(0, dataList.length - windowSize);
+            const slice = dataList.slice(startIndex);
+            const sum = slice.reduce((acc, item) => acc + (Number(item.volume) || 0), 0);
+            const mean = slice.length ? sum / slice.length : 0;
+            return dataList.map(() => ({ avgLine: mean }));
           },
         });
         klinecharts.registerIndicator({
@@ -586,7 +908,8 @@
         chart.createIndicator({ name: "MA", calcParams: [5, 10, 20, 60, 120, 250] }, false, {
           id: candlePaneId,
         });
-        chart.createIndicator("VOL", false, { id: volumePaneId, height: 120 });
+        chart.createIndicator("VOL_CUSTOM", false, { id: volumePaneId, height: 120 });
+        chart.createIndicator("VOL_AVG_LINE", true, { id: volumePaneId });
         chart.createIndicator("VOL_SPIKE", true, { id: volumePaneId });
         chart.createIndicator("MACD", false, { id: macdPaneId, height: 120 });
         chart.createIndicator("RT_PRICE", true, { id: candlePaneId });
@@ -613,7 +936,7 @@
         return match ? decodeURIComponent(match[1]) : null;
       }
 
-      function updateVolumeSpikeIndicator() {
+      function updateVolumeIndicators() {
         if (!chart) {
           return;
         }
@@ -621,6 +944,20 @@
           {
             name: "VOL_SPIKE",
             calcParams: [getWindowSize(), getMultiplier()],
+          },
+          volumePaneId,
+        );
+        chart.overrideIndicator(
+          {
+            name: "VOL_CUSTOM",
+            calcParams: [getWindowSize(), getMultiplier()],
+          },
+          volumePaneId,
+        );
+        chart.overrideIndicator(
+          {
+            name: "VOL_AVG_LINE",
+            calcParams: [getWindowSize()],
           },
           volumePaneId,
         );
@@ -668,8 +1005,8 @@
         if (!chart) {
           return;
         }
-        const upColor = useReversedColors ? "#ef4444" : "#22c55e";
-        const downColor = useReversedColors ? "#22c55e" : "#ef4444";
+        const upColor = getUpColor();
+        const downColor = getDownColor();
         chart.setStyles({
           candle: {
             type: klinecharts.CandleType.CandleSolid,
@@ -685,7 +1022,7 @@
         });
         chart.overrideIndicator(
           {
-            name: "VOL",
+            name: "VOL_CUSTOM",
             styles: {
               bars: [
                 {
@@ -738,6 +1075,56 @@
           },
           candlePaneId,
         );
+      }
+
+      function updateMAToggleGroupColor(index, color) {
+        const group = Array.from(maToggleGroups).find((item) => Number(item.dataset.maIndex) === index);
+        if (!group) {
+          return;
+        }
+        group.style.setProperty("--ma-color", color);
+      }
+
+      function parseRgbInput(value) {
+        const raw = String(value || "").trim();
+        if (!raw) {
+          return null;
+        }
+        const hexMatch = raw.match(/^#([0-9a-f]{6})$/i);
+        if (hexMatch) {
+          return raw;
+        }
+        const rgbMatch = raw.match(/^rgb\\s*\\(\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})\\s*\\)$/i);
+        const shortMatch = raw.match(/^(\\d{1,3})\\s*,\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})$/);
+        const match = rgbMatch || shortMatch;
+        if (!match) {
+          return null;
+        }
+        const values = match.slice(1, 4).map((item) => Number(item));
+        if (values.some((num) => !Number.isFinite(num) || num < 0 || num > 255)) {
+          return null;
+        }
+        return `rgb(${values.join(", ")})`;
+      }
+
+      function formatColorInput(color) {
+        if (!color) {
+          return "";
+        }
+        const rgbMatch = String(color).match(/^rgb\\((.*)\\)$/i);
+        if (rgbMatch) {
+          return rgbMatch[1];
+        }
+        return String(color);
+      }
+
+      function updateMAColor(index, color) {
+        if (!Number.isFinite(index) || !color) {
+          return;
+        }
+        maColors[index] = color;
+        updateMAToggleGroupColor(index, color);
+        applyMALineStyles();
       }
 
       function formatNumber(value) {
@@ -1184,7 +1571,7 @@
           const data = normalizeCandles(payload.data);
           const sortedData = data.slice().sort((a, b) => a.timestamp - b.timestamp);
           chart.applyNewData(sortedData);
-          updateVolumeSpikeIndicator();
+          updateVolumeIndicators();
           applyPaneBorders();
           updatePaneHeights();
           updateLastTimestamp(sortedData);
@@ -1384,11 +1771,11 @@
         loadOrderBook();
       });
       refreshBtn.addEventListener("click", loadRecentCandles);
-      windowInput.addEventListener("change", updateVolumeSpikeIndicator);
+      windowInput.addEventListener("change", updateVolumeIndicators);
       windowInput.addEventListener("change", () => {
         setCookie("tautoWindow", windowInput.value);
       });
-      multiplierInput.addEventListener("change", updateVolumeSpikeIndicator);
+      multiplierInput.addEventListener("change", updateVolumeIndicators);
       multiplierInput.addEventListener("change", () => {
         setCookie("tautoMultiplier", multiplierInput.value);
       });
@@ -1400,6 +1787,90 @@
       colorToggle.addEventListener("click", () => {
         useReversedColors = !useReversedColors;
         applyCandleColors();
+      });
+      function closeAllColorMenus(exceptIndex = null) {
+        maColorDropdowns.forEach((dropdown) => {
+          const index = Number(dropdown.dataset.maIndex);
+          if (Number.isFinite(exceptIndex) && index === exceptIndex) {
+            return;
+          }
+          dropdown.classList.remove("open");
+        });
+      }
+      maToggleGroups.forEach((group) => {
+        const index = Number(group.dataset.maIndex);
+        if (!Number.isFinite(index)) {
+          return;
+        }
+        updateMAToggleGroupColor(index, maColors[index]);
+      });
+      maColorTriggers.forEach((trigger) => {
+        trigger.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const index = Number(trigger.closest(".ma-color-dropdown")?.dataset.maIndex);
+          if (!Number.isFinite(index)) {
+            return;
+          }
+          const dropdown = Array.from(maColorDropdowns).find((item) => Number(item.dataset.maIndex) === index);
+          if (!dropdown) {
+            return;
+          }
+          const isOpen = dropdown.classList.contains("open");
+          closeAllColorMenus(isOpen ? null : index);
+          dropdown.classList.toggle("open", !isOpen);
+        });
+      });
+      maColorSelects.forEach((select) => {
+        const index = Number(select.dataset.maIndex);
+        if (!Number.isFinite(index)) {
+          return;
+        }
+        const presetValues = Array.from(select.options)
+          .map((option) => option.value)
+          .filter((value) => value !== "custom");
+        if (presetValues.includes(maColors[index])) {
+          select.value = maColors[index];
+        } else {
+          select.value = "custom";
+        }
+        select.addEventListener("change", () => {
+          if (select.value === "custom") {
+            return;
+          }
+          updateMAColor(index, select.value);
+          const input = Array.from(maColorInputs).find((item) => Number(item.dataset.maIndex) === index);
+          if (input) {
+            input.value = formatColorInput(select.value);
+          }
+        });
+      });
+      maColorInputs.forEach((input) => {
+        const index = Number(input.dataset.maIndex);
+        if (!Number.isFinite(index)) {
+          return;
+        }
+        input.value = formatColorInput(maColors[index]);
+        input.addEventListener("change", () => {
+          const color = parseRgbInput(input.value);
+          if (!color) {
+            return;
+          }
+          updateMAColor(index, color);
+          const select = Array.from(maColorSelects).find((item) => Number(item.dataset.maIndex) === index);
+          if (select) {
+            const presetMatch = Array.from(select.options).some((option) => option.value === color);
+            select.value = presetMatch ? color : "custom";
+          }
+        });
+      });
+      document.addEventListener("click", (event) => {
+        if (!(event.target instanceof HTMLElement)) {
+          return;
+        }
+        if (event.target.closest(".ma-color-dropdown")) {
+          return;
+        }
+        closeAllColorMenus();
       });
       maToggles.forEach((toggle) => {
         toggle.addEventListener("click", () => {
