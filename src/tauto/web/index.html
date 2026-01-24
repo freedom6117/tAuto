@@ -778,16 +778,16 @@
           calc: (dataList, indicator) => {
             const windowSize = Math.max(1, Math.floor(indicator.calcParams[0]));
             const multiplier = Number(indicator.calcParams[1]);
-            const buffer = [];
-            let sum = 0;
-            return dataList.map((item) => {
-              const volume = Number(item.volume) || 0;
-              buffer.push(volume);
-              sum += volume;
-              if (buffer.length > windowSize) {
-                sum -= buffer.shift();
-              }
-              const mean = buffer.length ? sum / buffer.length : 0;
+            const volumes = dataList.map((item) => Number(item.volume) || 0);
+            const prefixSum = [0];
+            volumes.forEach((value, index) => {
+              prefixSum[index + 1] = prefixSum[index] + value;
+            });
+            return volumes.map((volume, index) => {
+              const startIndex = Math.max(0, index - windowSize + 1);
+              const windowTotal = prefixSum[index + 1] - prefixSum[startIndex];
+              const windowLength = index - startIndex + 1;
+              const mean = windowLength > 0 ? windowTotal / windowLength : 0;
               const isSpike = mean > 0 && volume > mean * multiplier;
               return {
                 volume,
