@@ -887,10 +887,8 @@
           applyPaneBorders();
           updatePaneHeights();
           updateLastTimestamp(sortedData);
-          updateMeta(payload, source === "binance" ? "" : "补全中");
-          if (source !== "binance") {
-            loadFullHistory(token);
-          }
+          updateMeta(payload, "补全中");
+          loadFullHistory(token);
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
         } finally {
