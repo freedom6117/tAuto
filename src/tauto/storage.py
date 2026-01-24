@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Protocol, Sequence
@@ -13,6 +14,7 @@ import sqlite3
 class CandleStick:
     """Represents a single candlestick data point."""
 
+    source: str
     inst_id: str
     bar: str
     ts: int
@@ -37,6 +39,7 @@ class DatabaseBackend(Protocol):
 
     def fetch_existing_timestamps(
         self,
+        source: str,
         inst_id: str,
         bar: str,
         start_ts: int,
@@ -44,11 +47,12 @@ class DatabaseBackend(Protocol):
     ) -> List[int]:
         """Fetch timestamps already present for the given range."""
 
-    def latest_timestamp(self, inst_id: str, bar: str) -> Optional[int]:
+    def latest_timestamp(self, source: str, inst_id: str, bar: str) -> Optional[int]:
         """Fetch the latest timestamp stored for the given instrument."""
 
     def fetch_candles(
         self,
+        source: str,
         inst_id: str,
         bar: str,
         limit: Optional[int] = 300,
@@ -59,6 +63,16 @@ class DatabaseBackend(Protocol):
 
     def delete_older_than(self, cutoff_ts: int) -> int:
         """Delete data older than the given timestamp. Returns deleted rows."""
+
+    def upsert_orderbook_snapshot(
+        self,
+        inst_id: str,
+        ts_ms: int,
+        bids: Sequence[Sequence[object]],
+        asks: Sequence[Sequence[object]],
+        depth: Optional[int] = None,
+    ) -> None:
+        """Upsert order book snapshot data into storage."""
 
 
 class CacheBackend(Protocol):
@@ -86,9 +100,11 @@ class SqliteCandleStore:
 
     def initialize(self) -> None:
         with self._connect() as connection:
+            self._migrate_schema(connection)
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS candles (
+                    source TEXT NOT NULL,
                     inst_id TEXT NOT NULL,
                     bar TEXT NOT NULL,
                     ts INTEGER NOT NULL,
@@ -100,22 +116,40 @@ class SqliteCandleStore:
                     volume_ccy REAL NOT NULL,
                     volume_quote REAL NOT NULL,
                     confirm INTEGER NOT NULL,
-                    PRIMARY KEY (inst_id, bar, ts)
+                    PRIMARY KEY (source, inst_id, bar, ts)
                 )
                 """
             )
             connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_candles_ts ON candles(ts)"
+                "CREATE INDEX IF NOT EXISTS idx_candles_ts ON candles(source, ts)"
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS orderbook_snapshots (
+                    inst_id TEXT NOT NULL,
+                    ts_sec INTEGER NOT NULL,
+                    ts_ms INTEGER NOT NULL,
+                    depth INTEGER,
+                    bids TEXT NOT NULL,
+                    asks TEXT NOT NULL,
+                    PRIMARY KEY (inst_id, ts_sec)
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_orderbook_ts ON orderbook_snapshots(ts_sec)"
             )
 
     def upsert_candles(self, candles: Sequence[CandleStick]) -> None:
         if not candles:
             return
+        source = candles[0].source
         inst_id = candles[0].inst_id
         bar = candles[0].bar
         latest_ts = candles[-1].ts
         rows = [
             (
+                candle.source,
                 candle.inst_id,
                 candle.bar,
                 candle.ts,
@@ -134,10 +168,10 @@ class SqliteCandleStore:
             connection.executemany(
                 """
                 INSERT INTO candles (
-                    inst_id, bar, ts, open, high, low, close,
+                    source, inst_id, bar, ts, open, high, low, close,
                     volume, volume_ccy, volume_quote, confirm
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(inst_id, bar, ts) DO UPDATE SET
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source, inst_id, bar, ts) DO UPDATE SET
                     open=excluded.open,
                     high=excluded.high,
                     low=excluded.low,
@@ -150,8 +184,9 @@ class SqliteCandleStore:
                 rows,
             )
         self.logger.info(
-            "Upserted %s candles for %s (%s), latest ts=%s",
+            "Upserted %s candles for %s:%s (%s), latest ts=%s",
             len(candles),
+            source,
             inst_id,
             bar,
             latest_ts,
@@ -159,6 +194,7 @@ class SqliteCandleStore:
 
     def fetch_existing_timestamps(
         self,
+        source: str,
         inst_id: str,
         bar: str,
         start_ts: int,
@@ -168,34 +204,35 @@ class SqliteCandleStore:
             cursor = connection.execute(
                 """
                 SELECT ts FROM candles
-                WHERE inst_id = ? AND bar = ? AND ts BETWEEN ? AND ?
+                WHERE source = ? AND inst_id = ? AND bar = ? AND ts BETWEEN ? AND ?
                 ORDER BY ts ASC
                 """,
-                (inst_id, bar, start_ts, end_ts),
+                (source, inst_id, bar, start_ts, end_ts),
             )
             return [row[0] for row in cursor.fetchall()]
 
-    def latest_timestamp(self, inst_id: str, bar: str) -> Optional[int]:
+    def latest_timestamp(self, source: str, inst_id: str, bar: str) -> Optional[int]:
         with self._connect() as connection:
             cursor = connection.execute(
                 """
-                SELECT MAX(ts) FROM candles WHERE inst_id = ? AND bar = ?
+                SELECT MAX(ts) FROM candles WHERE source = ? AND inst_id = ? AND bar = ?
                 """,
-                (inst_id, bar),
+                (source, inst_id, bar),
             )
             value = cursor.fetchone()[0]
             return int(value) if value is not None else None
 
     def fetch_candles(
         self,
+        source: str,
         inst_id: str,
         bar: str,
         limit: Optional[int] = 300,
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
     ) -> List[CandleStick]:
-        where_clauses = ["inst_id = ?", "bar = ?"]
-        params: list[object] = [inst_id, bar]
+        where_clauses = ["source = ?", "inst_id = ?", "bar = ?"]
+        params: list[object] = [source, inst_id, bar]
         if start_ts is not None:
             where_clauses.append("ts >= ?")
             params.append(start_ts)
@@ -204,7 +241,7 @@ class SqliteCandleStore:
             params.append(end_ts)
         where_sql = " AND ".join(where_clauses)
         base_query = (
-            "SELECT inst_id, bar, ts, open, high, low, close, volume, "
+            "SELECT source, inst_id, bar, ts, open, high, low, close, volume, "
             "volume_ccy, volume_quote, confirm "
             "FROM candles WHERE "
             f"{where_sql} ORDER BY ts DESC"
@@ -217,17 +254,18 @@ class SqliteCandleStore:
             rows = cursor.fetchall()
         candles = [
             CandleStick(
-                inst_id=row[0],
-                bar=row[1],
-                ts=row[2],
-                open=row[3],
-                high=row[4],
-                low=row[5],
-                close=row[6],
-                volume=row[7],
-                volume_ccy=row[8],
-                volume_quote=row[9],
-                confirm=bool(row[10]),
+                source=row[0],
+                inst_id=row[1],
+                bar=row[2],
+                ts=row[3],
+                open=row[4],
+                high=row[5],
+                low=row[6],
+                close=row[7],
+                volume=row[8],
+                volume_ccy=row[9],
+                volume_quote=row[10],
+                confirm=bool(row[11]),
             )
             for row in rows
         ]
@@ -240,6 +278,81 @@ class SqliteCandleStore:
                 (cutoff_ts,),
             )
             return cursor.rowcount
+
+    def upsert_orderbook_snapshot(
+        self,
+        inst_id: str,
+        ts_ms: int,
+        bids: Sequence[Sequence[object]],
+        asks: Sequence[Sequence[object]],
+        depth: Optional[int] = None,
+    ) -> None:
+        ts_sec = int(ts_ms) // 1000
+        payload = (
+            inst_id,
+            ts_sec,
+            int(ts_ms),
+            depth,
+            json.dumps(bids, separators=(",", ":"), ensure_ascii=False),
+            json.dumps(asks, separators=(",", ":"), ensure_ascii=False),
+        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO orderbook_snapshots (
+                    inst_id, ts_sec, ts_ms, depth, bids, asks
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(inst_id, ts_sec) DO UPDATE SET
+                    ts_ms=excluded.ts_ms,
+                    depth=excluded.depth,
+                    bids=excluded.bids,
+                    asks=excluded.asks
+                """,
+                payload,
+            )
+
+    def _migrate_schema(self, connection: sqlite3.Connection) -> None:
+        cursor = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='candles'"
+        )
+        exists = cursor.fetchone() is not None
+        if not exists:
+            return
+        columns = [row[1] for row in connection.execute("PRAGMA table_info(candles)")]
+        if "source" in columns:
+            return
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS candles_v2 (
+                source TEXT NOT NULL,
+                inst_id TEXT NOT NULL,
+                bar TEXT NOT NULL,
+                ts INTEGER NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                volume REAL NOT NULL,
+                volume_ccy REAL NOT NULL,
+                volume_quote REAL NOT NULL,
+                confirm INTEGER NOT NULL,
+                PRIMARY KEY (source, inst_id, bar, ts)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO candles_v2 (
+                source, inst_id, bar, ts, open, high, low, close,
+                volume, volume_ccy, volume_quote, confirm
+            )
+            SELECT 'okx', inst_id, bar, ts, open, high, low, close,
+                   volume, volume_ccy, volume_quote, confirm
+            FROM candles
+            """
+        )
+        connection.execute("DROP TABLE candles")
+        connection.execute("ALTER TABLE candles_v2 RENAME TO candles")
 
 
 def subtract_months(reference: datetime, months: int) -> datetime:

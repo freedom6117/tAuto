@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-import random
+from dataclasses import dataclass
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 
 class OkxApiError(RuntimeError):
@@ -20,38 +17,20 @@ class OkxApiError(RuntimeError):
 class OkxClient:
     """OKX 公共 REST 接口客户端。"""
 
+    source: str = "okx"
     base_url: str = "https://www.okx.com"
     timeout: float = 10.0
     max_retries: int = 3
     retry_backoff: float = 0.5
-    session: requests.Session = field(default_factory=requests.Session, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        retry = Retry(
-            total=max(self.max_retries - 1, 0),
-            connect=max(self.max_retries - 1, 0),
-            read=max(self.max_retries - 1, 0),
-            status=max(self.max_retries - 1, 0),
-            backoff_factor=self.retry_backoff,
-            status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=("GET",),
-            raise_on_status=False,
-        )
-        adapter = HTTPAdapter(max_retries=retry)
-        self.session.mount("https://", adapter)
-        self.session.mount("http://", adapter)
-
     def _compute_backoff(self, attempt: int) -> float:
-        base = self.retry_backoff * (2 ** (attempt - 1))
-        jitter = random.uniform(0, self.retry_backoff)
-        return base + jitter
+        return self.retry_backoff * (2 ** (attempt - 1))
 
     def _request(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                response = self.session.get(url, params=params, timeout=self.timeout)
+                response = requests.get(url, params=params, timeout=self.timeout)
                 response.raise_for_status()
                 payload = response.json()
                 if payload.get("code") != "0":

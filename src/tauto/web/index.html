@@ -57,6 +57,7 @@
         gap: 16px;
         background: var(--panel);
         border-bottom: 1px solid var(--panel-border);
+        flex-wrap: wrap;
       }
 
       h1 {
@@ -68,8 +69,10 @@
       .controls {
         margin-left: auto;
         display: flex;
-        align-items: center;
+        align-items: flex-end;
         gap: 12px;
+        flex-wrap: wrap;
+        flex-direction: column;
       }
 
       select,
@@ -100,6 +103,46 @@
 
       .control-group input {
         width: 72px;
+      }
+
+      .controls-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .controls-row.secondary {
+        gap: 8px;
+      }
+
+      .ma-toggles {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .ma-label {
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+
+      .ma-toggle {
+        background: transparent;
+        border: 1px solid var(--control-border);
+        color: var(--text-muted);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .ma-toggle.active {
+        color: var(--text-primary);
+        border-color: var(--tooltip-border);
+        box-shadow: 0 0 0 1px var(--tooltip-border);
       }
 
       .content {
@@ -198,42 +241,39 @@
     <header>
       <h1>KLineChart 实时 K 线展示</h1>
       <div class="controls">
-        <label for="barSelect">级别</label>
-        <select id="barSelect">
-          <option value="1m">1m</option>
-          <option value="5m">5m</option>
-          <option value="15m">15m</option>
-          <option value="30m">30m</option>
-          <option value="1h">1h</option>
-          <option value="2h">2h</option>
-          <option value="4h">4h</option>
-          <option value="6h">6h</option>
-          <option value="12h">12h</option>
-          <option value="1d">1d</option>
-          <option value="2d">2d</option>
-          <option value="3d">3d</option>
-          <option value="1w">1w</option>
-          <option value="1M">1M</option>
-          <option value="3M">3M</option>
-        </select>
-        <label for="instSelect">标的</label>
-        <select id="instSelect">
-          <option value="BTC-USDT">BTC-USDT</option>
-          <option value="BTC-USDT-SWAP">BTC-USDT 永续</option>
-          <option value="ETH-USDT">ETH-USDT</option>
-          <option value="ETH-USDT-SWAP">ETH-USDT 永续</option>
-        </select>
-        <div class="control-group">
-          <label for="windowInput">窗口W</label>
-          <input id="windowInput" type="number" min="1" step="1" value="60" />
+        <div class="controls-row">
+          <label for="sourceSelect">数据源</label>
+          <select id="sourceSelect">
+            <option value="okx">OKX</option>
+            <option value="binance">Binance</option>
+          </select>
+          <label for="barSelect">级别</label>
+          <select id="barSelect"></select>
+          <label for="instSelect">标的</label>
+          <select id="instSelect"></select>
+          <div class="control-group">
+            <label for="windowInput">窗口W</label>
+            <input id="windowInput" type="number" min="1" step="1" value="60" />
+          </div>
+          <div class="control-group">
+            <label for="multiplierInput">倍数N</label>
+            <input id="multiplierInput" type="number" min="1" step="0.1" value="5" />
+          </div>
+          <button id="themeToggle" type="button">明亮模式</button>
+          <button id="colorToggle" type="button">涨跌色互换</button>
+          <button id="refreshBtn" type="button">刷新</button>
         </div>
-        <div class="control-group">
-          <label for="multiplierInput">倍数N</label>
-          <input id="multiplierInput" type="number" min="1" step="0.1" value="5" />
+        <div class="controls-row secondary">
+          <div class="ma-toggles" aria-label="均线显示">
+            <span class="ma-label">均线</span>
+            <button class="ma-toggle active" type="button" data-ma-index="0" aria-pressed="true">MA5</button>
+            <button class="ma-toggle active" type="button" data-ma-index="1" aria-pressed="true">MA10</button>
+            <button class="ma-toggle active" type="button" data-ma-index="2" aria-pressed="true">MA20</button>
+            <button class="ma-toggle active" type="button" data-ma-index="3" aria-pressed="true">MA60</button>
+            <button class="ma-toggle active" type="button" data-ma-index="4" aria-pressed="true">MA120</button>
+            <button class="ma-toggle active" type="button" data-ma-index="5" aria-pressed="true">MA250</button>
+          </div>
         </div>
-        <button id="themeToggle" type="button">明亮模式</button>
-        <button id="colorToggle" type="button">涨跌色互换</button>
-        <button id="refreshBtn" type="button">刷新</button>
       </div>
     </header>
     <main class="content">
@@ -255,6 +295,7 @@
     <script src="/static/vendor/klinecharts.min.js"></script>
     <script>
       const meta = document.getElementById("meta");
+      const sourceSelect = document.getElementById("sourceSelect");
       const barSelect = document.getElementById("barSelect");
       const instSelect = document.getElementById("instSelect");
       const refreshBtn = document.getElementById("refreshBtn");
@@ -269,6 +310,29 @@
       const candlePaneId = "candle_pane";
       const volumePaneId = "volume_pane";
       const macdPaneId = "macd_pane";
+      const maToggles = document.querySelectorAll(".ma-toggle");
+      const maColors = ["#f97316", "#06b6d4", "#22c55e", "#eab308", "#3b82f6", "#8b5cf6"];
+      const maVisibility = Array.from({ length: maColors.length }, () => true);
+      const dataSources = {
+        okx: {
+          label: "OKX",
+          bars: ["1m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "2d", "3d", "1w", "1M", "3M"],
+          instruments: [
+            { value: "BTC-USDT", label: "BTC-USDT" },
+            { value: "BTC-USDT-SWAP", label: "BTC-USDT 永续" },
+            { value: "ETH-USDT", label: "ETH-USDT" },
+            { value: "ETH-USDT-SWAP", label: "ETH-USDT 永续" },
+          ],
+        },
+        binance: {
+          label: "Binance",
+          bars: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "1w", "1M"],
+          instruments: [
+            { value: "BTCUSDT", label: "BTCUSDT" },
+            { value: "ETHUSDT", label: "ETHUSDT" },
+          ],
+        },
+      };
       let currentTheme = "dark";
       let useReversedColors = false;
       let lastTimestamp = null;
@@ -280,6 +344,7 @@
       const orderBookContext = orderbookCanvas?.getContext("2d") ?? null;
       let historyLoadToken = 0;
       let historyLoadInFlight = false;
+      const HISTORY_BATCH_SIZE = 500;
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
       } else {
@@ -498,6 +563,27 @@
         renderOrderBook(lastOrderBook);
       }
 
+      function applyMALineStyles() {
+        if (!chart) {
+          return;
+        }
+        const lines = maColors.map((color, index) => {
+          const visible = maVisibility[index];
+          return {
+            color: visible ? color : "transparent",
+            size: visible ? 1 : 0,
+            style: "solid",
+          };
+        });
+        chart.overrideIndicator(
+          {
+            name: "MA",
+            styles: { lines },
+          },
+          candlePaneId,
+        );
+      }
+
       function formatNumber(value) {
         if (!Number.isFinite(value)) {
           return "--";
@@ -699,12 +785,41 @@
       function updateMeta(payload, extraNote = "") {
         const totalCount = chart ? chart.getDataList().length : 0;
         const note = extraNote ? ` | ${extraNote}` : "";
-        meta.textContent = `标的：${payload.instId} | 周期：${payload.bar} | 根数：${totalCount}${note}`;
+        const sourceLabel = dataSources[payload.source]?.label || payload.source || "OKX";
+        meta.textContent = `数据源：${sourceLabel} | 标的：${payload.instId} | 周期：${payload.bar} | 根数：${totalCount}${note}`;
+      }
+
+      function setSelectOptions(select, options, currentValue) {
+        select.innerHTML = "";
+        options.forEach((option) => {
+          const node = document.createElement("option");
+          if (typeof option === "string") {
+            node.value = option;
+            node.textContent = option;
+          } else {
+            node.value = option.value;
+            node.textContent = option.label;
+          }
+          select.appendChild(node);
+        });
+        if (currentValue && [...select.options].some((opt) => opt.value === currentValue)) {
+          select.value = currentValue;
+        } else if (select.options.length) {
+          select.value = select.options[0].value;
+        }
+      }
+
+      function applySourceOptions() {
+        const source = sourceSelect.value;
+        const config = dataSources[source] ?? dataSources.okx;
+        setSelectOptions(barSelect, config.bars, barSelect.value);
+        setSelectOptions(instSelect, config.instruments, instSelect.value);
       }
 
       async function loadRecentCandles() {
         const bar = barSelect.value;
         const instId = instSelect.value;
+        const source = sourceSelect.value;
         refreshBtn.disabled = true;
         refreshBtn.textContent = "加载中...";
         if (!chart) {
@@ -718,6 +833,7 @@
           const params = new URLSearchParams({
             bar,
             inst_id: instId,
+            source,
           });
           params.set("since_ts", String(lastTimestamp));
           const response = await fetch(`/api/candles?${params.toString()}`);
@@ -745,6 +861,7 @@
       async function loadInitialCandles() {
         const bar = barSelect.value;
         const instId = instSelect.value;
+        const source = sourceSelect.value;
         const token = ++historyLoadToken;
         historyLoadInFlight = true;
         refreshBtn.disabled = true;
@@ -757,6 +874,7 @@
             bar,
             inst_id: instId,
             limit: "300",
+            source,
           });
           const response = await fetch(`/api/candles?${params.toString()}`);
           if (!response.ok) {
@@ -771,73 +889,57 @@
           updatePaneHeights();
           updateLastTimestamp(sortedData);
           updateMeta(payload, "补全中");
-          loadFullHistory(token);
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
         } finally {
+          historyLoadInFlight = false;
           refreshBtn.disabled = false;
           refreshBtn.textContent = "刷新";
         }
       }
 
-      async function loadFullHistory(token) {
-        const bar = barSelect.value;
-        const instId = instSelect.value;
-        if (!chart) {
+      async function loadMoreHistory(timestampHint) {
+        if (!chart || historyLoadInFlight) {
           return;
         }
+        const dataList = chart.getDataList();
+        if (!dataList.length) {
+          return;
+        }
+        const bar = barSelect.value;
+        const instId = instSelect.value;
+        const source = sourceSelect.value;
+        const earliestTs = Number(timestampHint || dataList[0].timestamp);
+        if (!Number.isFinite(earliestTs)) {
+          return;
+        }
+        historyLoadInFlight = true;
         try {
           const params = new URLSearchParams({
             bar,
             inst_id: instId,
-            all_data: "true",
+            limit: String(HISTORY_BATCH_SIZE),
+            source,
           });
+          params.set("end_ts", String(earliestTs - 1));
           const response = await fetch(`/api/candles?${params.toString()}`);
           if (!response.ok) {
             throw new Error(`请求失败：${response.status}`);
           }
-          if (token !== historyLoadToken) {
-            return;
-          }
           const payload = await response.json();
           const data = normalizeCandles(payload.data);
           const sortedData = data.slice().sort((a, b) => a.timestamp - b.timestamp);
-          const existingCount = chart.getDataList().length;
-          const missingCount = sortedData.length - existingCount;
-          if (missingCount <= 0) {
+          if (sortedData.length === 0) {
             updateMeta(payload);
-            historyLoadInFlight = false;
             return;
           }
-          const olderData = sortedData.slice(0, missingCount);
-          updateLastTimestamp(sortedData);
-          appendHistoryChunks(olderData, payload, token);
+          chart.applyMoreData(sortedData);
+          updateMeta(payload, "补全中");
         } catch (error) {
           meta.textContent = `补全失败：${error.message}`;
+        } finally {
           historyLoadInFlight = false;
         }
-      }
-
-      function appendHistoryChunks(olderData, payload, token) {
-        const chunkSize = 400;
-        const remaining = olderData.slice();
-        const step = () => {
-          if (!chart || token !== historyLoadToken) {
-            return;
-          }
-          if (remaining.length === 0) {
-            updateMeta(payload);
-            historyLoadInFlight = false;
-            return;
-          }
-          const startIndex = Math.max(0, remaining.length - chunkSize);
-          const chunk = remaining.slice(startIndex);
-          remaining.length = startIndex;
-          chart.applyMoreData(chunk);
-          updateMeta(payload, "补全中");
-          setTimeout(step, 0);
-        };
-        step();
       }
 
       async function refreshRealtimePrice() {
@@ -848,6 +950,7 @@
         try {
           const params = new URLSearchParams({
             inst_id: instSelect.value,
+            source: sourceSelect.value,
           });
           const response = await fetch(`/api/ticker?${params.toString()}`);
           if (!response.ok) {
@@ -891,6 +994,7 @@
           const params = new URLSearchParams({
             inst_id: instSelect.value,
             depth: "20",
+            source: sourceSelect.value,
           });
           const response = await fetch(`/api/orderbook?${params.toString()}`);
           if (!response.ok) {
@@ -917,6 +1021,7 @@
         lastTimestamp = null;
         priceRefreshRequestId = 0;
         priceRefreshLatestAppliedId = 0;
+        historyLoadInFlight = false;
         if (chart) {
           chart.applyNewData([]);
         }
@@ -932,6 +1037,20 @@
         lastTimestamp = null;
         priceRefreshRequestId = 0;
         priceRefreshLatestAppliedId = 0;
+        historyLoadInFlight = false;
+        if (chart) {
+          chart.applyNewData([]);
+        }
+        loadInitialCandles();
+        loadOrderBook();
+      });
+      sourceSelect.addEventListener("change", () => {
+        setCookie("tautoSource", sourceSelect.value);
+        applySourceOptions();
+        lastTimestamp = null;
+        priceRefreshRequestId = 0;
+        priceRefreshLatestAppliedId = 0;
+        historyLoadInFlight = false;
         if (chart) {
           chart.applyNewData([]);
         }
@@ -954,13 +1073,33 @@
         useReversedColors = !useReversedColors;
         applyCandleColors();
       });
+      maToggles.forEach((toggle) => {
+        toggle.addEventListener("click", () => {
+          const index = Number(toggle.dataset.maIndex);
+          if (!Number.isFinite(index)) {
+            return;
+          }
+          maVisibility[index] = !maVisibility[index];
+          toggle.classList.toggle("active", maVisibility[index]);
+          toggle.setAttribute("aria-pressed", maVisibility[index] ? "true" : "false");
+          applyMALineStyles();
+        });
+      });
       if (chart) {
         chart.subscribeAction(klinecharts.ActionType.OnCrosshairChange, (payload) => {
           updateVolumeTooltip(payload);
         });
+        chart.loadMore((timestamp) => {
+          loadMoreHistory(timestamp);
+        });
       }
 
       const savedBar = getCookie("tautoBar");
+      const savedSource = getCookie("tautoSource");
+      if (savedSource && [...sourceSelect.options].some((option) => option.value === savedSource)) {
+        sourceSelect.value = savedSource;
+      }
+      applySourceOptions();
       if (savedBar && [...barSelect.options].some((option) => option.value === savedBar)) {
         barSelect.value = savedBar;
       }
@@ -981,6 +1120,7 @@
       const savedColorMode = getCookie("tautoColorMode");
       useReversedColors = savedColorMode === "reversed";
       applyCandleColors();
+      applyMALineStyles();
       loadInitialCandles();
       resizeOrderBookCanvas();
       loadOrderBook();
@@ -988,7 +1128,7 @@
       window.addEventListener("resize", resizeOrderBookCanvas);
       setInterval(loadRecentCandles, 15000);
       setInterval(refreshRealtimePrice, 100);
-      setInterval(loadOrderBook, 2000);
+      setInterval(loadOrderBook, 1000);
     </script>
   </body>
 </html>
