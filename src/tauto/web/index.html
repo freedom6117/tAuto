@@ -879,7 +879,7 @@
                 spike,
                 avgVolume: mean,
                 currentVolume: volume,
-                multiple: mean > 0 ? volume / mean : null,
+                multiple: latestMean > 0 ? volume / latestMean : null,
               };
             });
           },
@@ -1437,10 +1437,10 @@
           return;
         }
         const windowSize = getWindowSize();
-        const startIndex = Math.max(0, dataIndex - windowSize + 1);
-        const windowSlice = dataList.slice(startIndex, dataIndex + 1);
-        const sum = windowSlice.reduce((acc, row) => acc + (Number(row.volume) || 0), 0);
-        const mean = windowSlice.length ? sum / windowSlice.length : 0;
+        const latestStartIndex = Math.max(0, dataList.length - windowSize);
+        const latestSlice = dataList.slice(latestStartIndex);
+        const sum = latestSlice.reduce((acc, row) => acc + (Number(row.volume) || 0), 0);
+        const mean = latestSlice.length ? sum / latestSlice.length : 0;
         const volume = Number(item.volume) || 0;
         const multiple = mean > 0 ? volume / mean : null;
         const threshold = mean * getMultiplier();
