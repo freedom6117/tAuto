@@ -64,6 +64,16 @@
         font-size: 18px;
         margin: 0;
         font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .bird-icon {
+        width: 24px;
+        height: 24px;
+        color: var(--tooltip-border);
+        flex-shrink: 0;
       }
 
       .controls {
@@ -334,7 +344,28 @@
   </head>
   <body>
     <header>
-      <h1>KLineChart 实时 K 线展示</h1>
+      <h1>
+        <svg
+          class="bird-icon"
+          viewBox="0 0 64 32"
+          role="img"
+          aria-label="飞翔的鸟"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M6 22C14 10 28 8 36 14C41 8 50 6 58 10C49 11 43 15 39 20C32 15 22 16 14 22C11 24 8 24 6 22Z"
+            fill="currentColor"
+          />
+          <path
+            d="M33 15C35 12 39 10 44 10"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+        KLineChart 实时 K 线展示
+      </h1>
       <div class="controls">
         <div class="controls-row">
           <label for="sourceSelect">数据源</label>
