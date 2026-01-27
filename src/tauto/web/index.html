@@ -380,16 +380,10 @@
         gap: 4px;
       }
 
-      .orderbook-merge-controls input,
-      .orderbook-merge-controls select {
+      .orderbook-merge-controls input {
         width: 72px;
         padding: 4px 6px;
         font-size: 12px;
-      }
-
-      .orderbook-merge-controls select {
-        width: auto;
-        min-width: 120px;
       }
 
       .orderbook-spike-table {
@@ -444,6 +438,12 @@
         display: flex;
         flex-direction: column;
         gap: 6px;
+      }
+
+      .orderbook-merge-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
       }
 
       .orderbook-merge-section-title {
@@ -734,11 +734,6 @@
                 <input id="mergeIntervalInput" type="number" min="0" step="0.1" value="5" />
                 <label for="mergeThresholdInput">显示阈值(k)</label>
                 <input id="mergeThresholdInput" type="number" min="0" step="0.1" value="100" />
-                <label for="mergeSourceSelect">展示数据</label>
-                <select id="mergeSourceSelect" multiple>
-                  <option value="okx" selected>OKX 现货</option>
-                  <option value="binance" selected>Binance 现货</option>
-                </select>
               </div>
               <div id="mergeTableContainer"></div>
             </div>
@@ -768,7 +763,6 @@
       const spikeTableContainer = document.getElementById("spikeTableContainer");
       const mergeIntervalInput = document.getElementById("mergeIntervalInput");
       const mergeThresholdInput = document.getElementById("mergeThresholdInput");
-      const mergeSourceSelect = document.getElementById("mergeSourceSelect");
       const mergeTableContainer = document.getElementById("mergeTableContainer");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
       const candlePaneId = "candle_pane";
@@ -1264,13 +1258,6 @@
         return Number.isFinite(value) && value >= 0 ? value : 0;
       }
 
-      function getSelectedMergeSources() {
-        if (!mergeSourceSelect) {
-          return [];
-        }
-        return Array.from(mergeSourceSelect.selectedOptions).map((option) => option.value);
-      }
-
       function getOrderBookColors() {
         const bidColor = useReversedColors ? "#ef4444" : "#22c55e";
         const askColor = useReversedColors ? "#22c55e" : "#ef4444";
@@ -1506,7 +1493,7 @@
       async function loadOrderBookForSource(source, instId) {
         const params = new URLSearchParams({
           inst_id: instId,
-          depth: "20",
+          depth: "1000",
           source,
         });
         const response = await fetch(`/api/orderbook?${params.toString()}`);
@@ -1518,10 +1505,7 @@
       }
 
       async function loadMergeOrderBooks() {
-        const selectedSources = getSelectedMergeSources();
-        if (!selectedSources.length) {
-          return {};
-        }
+        const selectedSources = ["okx", "binance"];
         const instId = instSelect.value;
         const tasks = selectedSources.map(async (source) => {
           const mappedInst = mapInstrumentForSource(source, instId);
@@ -1604,11 +1588,7 @@
         if (!mergeTableContainer) {
           return;
         }
-        const selectedSources = getSelectedMergeSources();
-        if (!selectedSources.length) {
-          mergeTableContainer.innerHTML = '<div class="orderbook-spike-empty">请选择展示数据来源</div>';
-          return;
-        }
+        const selectedSources = ["okx", "binance"];
         const orderBooks = await loadMergeOrderBooks();
         const sections = selectedSources
           .map((source) => {
@@ -1630,7 +1610,7 @@
             `;
           })
           .join("");
-        mergeTableContainer.innerHTML = sections;
+        mergeTableContainer.innerHTML = `<div class="orderbook-merge-grid">${sections}</div>`;
       }
 
       function renderOrderBook(book) {
@@ -2001,7 +1981,7 @@
         try {
           const params = new URLSearchParams({
             inst_id: instSelect.value,
-            depth: "20",
+            depth: "1000",
             source: sourceSelect.value,
           });
           const response = await fetch(`/api/orderbook?${params.toString()}`);
@@ -2089,7 +2069,6 @@
       spikeThresholdInput?.addEventListener("change", renderSpikeTable);
       mergeIntervalInput?.addEventListener("change", renderMergeTable);
       mergeThresholdInput?.addEventListener("change", renderMergeTable);
-      mergeSourceSelect?.addEventListener("change", renderMergeTable);
       themeToggle.addEventListener("click", () => {
         setTheme(currentTheme === "light" ? "dark" : "light");
       });

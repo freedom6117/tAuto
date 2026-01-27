@@ -201,7 +201,7 @@ def get_ticker(
 @app.get("/api/orderbook")
 def get_orderbook(
     inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
-    depth: int = Query(20, ge=1, le=200),
+    depth: int = Query(1000, ge=1, le=1000),
     source: str = Query("okx", description="Data source (okx/binance)"),
 ) -> dict:
     if source not in VALID_SOURCES:
