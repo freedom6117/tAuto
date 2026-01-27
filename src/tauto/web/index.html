@@ -380,10 +380,16 @@
         gap: 4px;
       }
 
-      .orderbook-merge-controls input {
+      .orderbook-merge-controls input,
+      .orderbook-merge-controls select {
         width: 72px;
         padding: 4px 6px;
         font-size: 12px;
+      }
+
+      .orderbook-merge-controls select {
+        width: auto;
+        min-width: 120px;
       }
 
       .orderbook-spike-table {
@@ -432,6 +438,18 @@
       .orderbook-merge-table th:first-child,
       .orderbook-merge-table td:first-child {
         text-align: left;
+      }
+
+      .orderbook-merge-section {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .orderbook-merge-section-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-primary);
       }
 
       .orderbook-spike-empty {
@@ -714,8 +732,13 @@
               <div class="orderbook-merge-controls">
                 <label for="mergeIntervalInput">合并步长($)</label>
                 <input id="mergeIntervalInput" type="number" min="0" step="0.1" value="5" />
-                <label for="mergeThresholdInput">显示阈值(M)</label>
-                <input id="mergeThresholdInput" type="number" min="0" step="0.1" value="1" />
+                <label for="mergeThresholdInput">显示阈值(k)</label>
+                <input id="mergeThresholdInput" type="number" min="0" step="0.1" value="100" />
+                <label for="mergeSourceSelect">展示数据</label>
+                <select id="mergeSourceSelect" multiple>
+                  <option value="okx" selected>OKX 现货</option>
+                  <option value="binance" selected>Binance 现货</option>
+                </select>
               </div>
               <div id="mergeTableContainer"></div>
             </div>
@@ -745,6 +768,7 @@
       const spikeTableContainer = document.getElementById("spikeTableContainer");
       const mergeIntervalInput = document.getElementById("mergeIntervalInput");
       const mergeThresholdInput = document.getElementById("mergeThresholdInput");
+      const mergeSourceSelect = document.getElementById("mergeSourceSelect");
       const mergeTableContainer = document.getElementById("mergeTableContainer");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
       const candlePaneId = "candle_pane";
@@ -1240,6 +1264,13 @@
         return Number.isFinite(value) && value >= 0 ? value : 0;
       }
 
+      function getSelectedMergeSources() {
+        if (!mergeSourceSelect) {
+          return [];
+        }
+        return Array.from(mergeSourceSelect.selectedOptions).map((option) => option.value);
+      }
+
       function getOrderBookColors() {
         const bidColor = useReversedColors ? "#ef4444" : "#22c55e";
         const askColor = useReversedColors ? "#22c55e" : "#ef4444";
@@ -1434,6 +1465,26 @@
         return null;
       }
 
+      function mapInstrumentForSource(source, instId) {
+        const normalized = String(instId || "");
+        if (!normalized) {
+          return "";
+        }
+        if (source === "okx") {
+          if (normalized.includes("-")) {
+            return normalized.replace("-SWAP", "");
+          }
+          if (normalized.endsWith("USDT")) {
+            return `${normalized.slice(0, -4)}-USDT`;
+          }
+          return normalized;
+        }
+        if (source === "binance") {
+          return normalized.replace(/-/g, "").replace("SWAP", "");
+        }
+        return normalized;
+      }
+
       function collectMergedBuckets(book, interval) {
         const buckets = new Map();
         const half = interval / 2;
@@ -1452,23 +1503,59 @@
         return Array.from(buckets.values()).sort((a, b) => b.center - a.center);
       }
 
-      function renderMergeTable() {
-        if (!mergeTableContainer) {
-          return;
+      async function loadOrderBookForSource(source, instId) {
+        const params = new URLSearchParams({
+          inst_id: instId,
+          depth: "20",
+          source,
+        });
+        const response = await fetch(`/api/orderbook?${params.toString()}`);
+        if (!response.ok) {
+          throw new Error(`请求失败：${response.status}`);
         }
-        if (!lastOrderBook) {
-          mergeTableContainer.innerHTML = '<div class="orderbook-spike-empty">暂无挂单数据</div>';
-          return;
+        const payload = await response.json();
+        return normalizeOrderBook(payload);
+      }
+
+      async function loadMergeOrderBooks() {
+        const selectedSources = getSelectedMergeSources();
+        if (!selectedSources.length) {
+          return {};
         }
+        const instId = instSelect.value;
+        const tasks = selectedSources.map(async (source) => {
+          const mappedInst = mapInstrumentForSource(source, instId);
+          if (!mappedInst) {
+            return null;
+          }
+          try {
+            const book = await loadOrderBookForSource(source, mappedInst);
+            return [source, book];
+          } catch (error) {
+            console.warn("合并挂单加载失败", source, error);
+            return [source, null];
+          }
+        });
+        const results = await Promise.all(tasks);
+        return results.reduce((acc, entry) => {
+          if (!entry) {
+            return acc;
+          }
+          const [source, book] = entry;
+          acc[source] = book;
+          return acc;
+        }, {});
+      }
+
+      function renderMergeTableForBook(book) {
         const interval = getMergeInterval();
-        const thresholdM = getMergeThreshold();
-        const thresholdValue = thresholdM * 1_000_000;
-        const currentPrice = getOrderBookMidPrice(lastOrderBook);
+        const thresholdK = getMergeThreshold();
+        const thresholdValue = thresholdK * 1_000;
+        const currentPrice = getOrderBookMidPrice(book);
         if (!Number.isFinite(currentPrice)) {
-          mergeTableContainer.innerHTML = '<div class="orderbook-spike-empty">当前价格不可用</div>';
-          return;
+          return '<div class="orderbook-spike-empty">当前价格不可用</div>';
         }
-        const rows = collectMergedBuckets(lastOrderBook, interval).filter((row) => {
+        const rows = collectMergedBuckets(book, interval).filter((row) => {
           const totalSize = row.bid + row.ask;
           if (thresholdValue <= 0) {
             return totalSize > 0;
@@ -1476,8 +1563,7 @@
           return currentPrice * totalSize >= thresholdValue;
         });
         if (!rows.length) {
-          mergeTableContainer.innerHTML = '<div class="orderbook-spike-empty">暂无满足条件的区间</div>';
-          return;
+          return '<div class="orderbook-spike-empty">暂无满足条件的区间</div>';
         }
         const { bidColor, askColor } = getOrderBookColors();
         const bodyHtml = rows
@@ -1496,7 +1582,7 @@
             `;
           })
           .join("");
-        mergeTableContainer.innerHTML = `
+        return `
           <table class="orderbook-merge-table">
             <thead>
               <tr>
@@ -1512,6 +1598,39 @@
             </tbody>
           </table>
         `;
+      }
+
+      async function renderMergeTable() {
+        if (!mergeTableContainer) {
+          return;
+        }
+        const selectedSources = getSelectedMergeSources();
+        if (!selectedSources.length) {
+          mergeTableContainer.innerHTML = '<div class="orderbook-spike-empty">请选择展示数据来源</div>';
+          return;
+        }
+        const orderBooks = await loadMergeOrderBooks();
+        const sections = selectedSources
+          .map((source) => {
+            const book = orderBooks[source];
+            const label = source === "okx" ? "OKX 现货" : "Binance 现货";
+            if (!book || (!book.bids.length && !book.asks.length)) {
+              return `
+                <div class="orderbook-merge-section">
+                  <div class="orderbook-merge-section-title">${label}</div>
+                  <div class="orderbook-spike-empty">暂无挂单数据</div>
+                </div>
+              `;
+            }
+            return `
+              <div class="orderbook-merge-section">
+                <div class="orderbook-merge-section-title">${label}</div>
+                ${renderMergeTableForBook(book)}
+              </div>
+            `;
+          })
+          .join("");
+        mergeTableContainer.innerHTML = sections;
       }
 
       function renderOrderBook(book) {
@@ -1970,6 +2089,7 @@
       spikeThresholdInput?.addEventListener("change", renderSpikeTable);
       mergeIntervalInput?.addEventListener("change", renderMergeTable);
       mergeThresholdInput?.addEventListener("change", renderMergeTable);
+      mergeSourceSelect?.addEventListener("change", renderMergeTable);
       themeToggle.addEventListener("click", () => {
         setTheme(currentTheme === "light" ? "dark" : "light");
       });
