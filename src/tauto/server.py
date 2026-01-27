@@ -63,9 +63,8 @@ BINANCE_BARS = {
     "1M": "1M",
 }
 BINANCE_SPOT_SOURCE = "binance"
-BINANCE_FUTURES_SOURCE = "binance_futures"
 
-VALID_SOURCES = {"okx", BINANCE_SPOT_SOURCE, BINANCE_FUTURES_SOURCE}
+VALID_SOURCES = {"okx", BINANCE_SPOT_SOURCE}
 
 DEFAULT_INST_ID = os.getenv("TAUTO_INST_ID", "BTC-USDT")
 DEFAULT_DB_PATH = os.getenv("TAUTO_DB_PATH", "candles.db")
@@ -74,11 +73,6 @@ app = FastAPI(title="TAuto K-Line Service")
 store = SqliteCandleStore(DEFAULT_DB_PATH)
 okx_client = OkxClient()
 binance_client = BinanceClient()
-binance_futures_client = BinanceClient(base_url="https://fapi.binance.com")
-BINANCE_CLIENTS = {
-    BINANCE_SPOT_SOURCE: binance_client,
-    BINANCE_FUTURES_SOURCE: binance_futures_client,
-}
 
 
 @app.on_event("startup")
@@ -104,7 +98,7 @@ def get_candles(
     inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
     bar: str = Query("1m", description="Candlestick bar"),
     limit: Optional[int] = Query(300, ge=1, le=2000),
-    source: str = Query("okx", description="Data source (okx/binance/binance_futures)"),
+    source: str = Query("okx", description="Data source (okx/binance)"),
     all_data: bool = Query(
         False, description="Return all candles for the selected bar when true."
     ),
@@ -117,15 +111,14 @@ def get_candles(
 ) -> dict:
     if source not in VALID_SOURCES:
         raise HTTPException(status_code=400, detail="Unsupported data source")
-    if source in BINANCE_CLIENTS:
+    if source == BINANCE_SPOT_SOURCE:
         normalized = BINANCE_BARS.get(bar)
         if normalized is None:
             raise HTTPException(status_code=400, detail="Unsupported bar interval")
         resolved_limit = min(limit or 500, 1000)
-        client = BINANCE_CLIENTS[source]
         if all_data:
-            _backfill_binance_history(inst_id, normalized, client=client, source=source)
-            candles = store.fetch_candles(source, inst_id, normalized, limit=None)
+            _backfill_binance_history(inst_id, normalized)
+            candles = store.fetch_candles(BINANCE_SPOT_SOURCE, inst_id, normalized, limit=None)
             payload = [_to_kline_payload(candle) for candle in candles]
         else:
             start_time = since_ts + 1 if since_ts is not None else None
@@ -133,13 +126,11 @@ def get_candles(
                 inst_id=inst_id,
                 bar=normalized,
                 limit=resolved_limit,
-                client=client,
-                source=source,
                 start_time=start_time,
                 end_time=end_ts,
             )
             candles = store.fetch_candles(
-                source,
+                BINANCE_SPOT_SOURCE,
                 inst_id,
                 normalized,
                 limit=resolved_limit,
@@ -177,13 +168,13 @@ def get_candles(
 @app.get("/api/ticker")
 def get_ticker(
     inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
-    source: str = Query("okx", description="Data source (okx/binance/binance_futures)"),
+    source: str = Query("okx", description="Data source (okx/binance)"),
 ) -> dict:
     if source not in VALID_SOURCES:
         raise HTTPException(status_code=400, detail="Unsupported data source")
     try:
-        if source in BINANCE_CLIENTS:
-            ticker = BINANCE_CLIENTS[source].get_ticker(inst_id)
+        if source == BINANCE_SPOT_SOURCE:
+            ticker = binance_client.get_ticker(inst_id)
             if not ticker:
                 raise HTTPException(status_code=502, detail="Ticker data unavailable")
             ts_ms = int(time.time() * 1000)
@@ -213,13 +204,13 @@ def get_ticker(
 def get_orderbook(
     inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
     depth: int = Query(1000, ge=1, le=1000),
-    source: str = Query("okx", description="Data source (okx/binance/binance_futures)"),
+    source: str = Query("okx", description="Data source (okx/binance)"),
 ) -> dict:
     if source not in VALID_SOURCES:
         raise HTTPException(status_code=400, detail="Unsupported data source")
     resolved_depth = depth
-    if source in BINANCE_CLIENTS:
-        book = BINANCE_CLIENTS[source].get_order_book(inst_id, limit=depth)
+    if source == BINANCE_SPOT_SOURCE:
+        book = binance_client.get_order_book(inst_id, limit=depth)
     else:
         resolved_depth = min(depth, OKX_ORDERBOOK_MAX_DEPTH)
         book = okx_client.get_order_book(inst_id, depth=resolved_depth)
@@ -250,12 +241,10 @@ def _store_binance_klines(
     inst_id: str,
     bar: str,
     limit: int,
-    client: BinanceClient,
-    source: str,
     start_time: Optional[int] = None,
     end_time: Optional[int] = None,
 ) -> int:
-    klines = client.get_klines(
+    klines = binance_client.get_klines(
         symbol=inst_id,
         interval=bar,
         limit=limit,
@@ -266,7 +255,7 @@ def _store_binance_klines(
         return 0
     candles = [
         CandleStick(
-            source=source,
+            source=BINANCE_SPOT_SOURCE,
             inst_id=inst_id,
             bar=bar,
             ts=int(row[0]),
@@ -285,7 +274,7 @@ def _store_binance_klines(
     return len(candles)
 
 
-def _backfill_binance_history(inst_id: str, bar: str, client: BinanceClient, source: str) -> None:
+def _backfill_binance_history(inst_id: str, bar: str) -> None:
     interval_ms = _binance_interval_ms(bar)
     now_ms = int(time.time() * 1000)
     cutoff_ms = now_ms - (90 * 24 * 60 * 60 * 1000)
@@ -295,8 +284,6 @@ def _backfill_binance_history(inst_id: str, bar: str, client: BinanceClient, sou
             inst_id=inst_id,
             bar=bar,
             limit=1000,
-            client=client,
-            source=source,
             end_time=end_time,
         )
         if fetched == 0:
