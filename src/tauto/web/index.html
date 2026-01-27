@@ -519,6 +519,7 @@
           <select id="sourceSelect">
             <option value="okx">OKX</option>
             <option value="binance">Binance</option>
+            <option value="binance_futures">Binance 永续</option>
           </select>
           <label for="barSelect">级别</label>
           <select id="barSelect"></select>
@@ -800,6 +801,14 @@
           instruments: [
             { value: "BTCUSDT", label: "BTCUSDT" },
             { value: "ETHUSDT", label: "ETHUSDT" },
+          ],
+        },
+        binance_futures: {
+          label: "Binance 永续",
+          bars: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "1w", "1M"],
+          instruments: [
+            { value: "BTCUSDT", label: "BTCUSDT 永续" },
+            { value: "ETHUSDT", label: "ETHUSDT 永续" },
           ],
         },
       };
@@ -1466,7 +1475,7 @@
           }
           return normalized;
         }
-        if (source === "binance") {
+        if (source === "binance" || source === "binance_futures") {
           return normalized.replace(/-/g, "").replace("SWAP", "");
         }
         return normalized;
