@@ -418,7 +418,7 @@
 
       .orderbook-merge-table th,
       .orderbook-merge-table td {
-        padding: 4px 8px;
+        padding: 6px 12px;
         border-bottom: 1px solid var(--panel-border);
         text-align: right;
         white-space: nowrap;
@@ -434,16 +434,25 @@
         text-align: left;
       }
 
-      .orderbook-merge-section {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
+      .orderbook-merge-source {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 18px;
+        padding: 0 6px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #0f172a;
       }
 
-      .orderbook-merge-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
+      .orderbook-merge-source.okx {
+        background: #38bdf8;
+      }
+
+      .orderbook-merge-source.binance {
+        background: #facc15;
       }
 
       .orderbook-merge-section-title {
@@ -1533,7 +1542,7 @@
         }, {});
       }
 
-      function renderMergeTableForBook(book) {
+      function renderMergeTableForBook(book, source) {
         const interval = getMergeInterval();
         const thresholdK = getMergeThreshold();
         const thresholdValue = thresholdK * 1_000;
@@ -1552,6 +1561,7 @@
           return '<div class="orderbook-spike-empty">暂无满足条件的区间</div>';
         }
         const { bidColor, askColor } = getOrderBookColors();
+        const sourceLabel = source === "okx" ? "O" : "B";
         const bodyHtml = rows
           .slice(0, 30)
           .map((row) => {
@@ -1559,6 +1569,7 @@
             const notional = currentPrice * totalSize;
             return `
               <tr>
+                <td><span class="orderbook-merge-source ${source}">${sourceLabel}</span></td>
                 <td>${formatCompactNumber(row.center)}</td>
                 <td style="color:${bidColor}">${formatCompactNumber(row.bid)}</td>
                 <td style="color:${askColor}">${formatCompactNumber(row.ask)}</td>
@@ -1572,6 +1583,7 @@
           <table class="orderbook-merge-table">
             <thead>
               <tr>
+                <th>来源</th>
                 <th>区间中心价</th>
                 <th>买挂单</th>
                 <th>卖挂单</th>
@@ -1590,29 +1602,84 @@
         if (!mergeTableContainer) {
           return;
         }
-        const selectedSources = ["okx", "binance"];
         const orderBooks = await loadMergeOrderBooks();
-        const sections = selectedSources
-          .map((source) => {
+        const sources = ["okx", "binance"];
+        const hasAnyData = sources.some((source) => {
+          const book = orderBooks[source];
+          return book && (book.bids.length || book.asks.length);
+        });
+        if (!hasAnyData) {
+          mergeTableContainer.innerHTML = '<div class="orderbook-spike-empty">暂无挂单数据</div>';
+          return;
+        }
+        const interval = getMergeInterval();
+        const thresholdK = getMergeThreshold();
+        const thresholdValue = thresholdK * 1_000;
+        const combinedRows = sources
+          .flatMap((source) => {
             const book = orderBooks[source];
-            const label = source === "okx" ? "OKX 现货" : "Binance 现货";
             if (!book || (!book.bids.length && !book.asks.length)) {
-              return `
-                <div class="orderbook-merge-section">
-                  <div class="orderbook-merge-section-title">${label}</div>
-                  <div class="orderbook-spike-empty">暂无挂单数据</div>
-                </div>
-              `;
+              return [];
             }
+            const currentPrice = getOrderBookMidPrice(book);
+            if (!Number.isFinite(currentPrice)) {
+              return [];
+            }
+            return collectMergedBuckets(book, interval)
+              .filter((row) => {
+                const totalSize = row.bid + row.ask;
+                if (thresholdValue <= 0) {
+                  return totalSize > 0;
+                }
+                return currentPrice * totalSize >= thresholdValue;
+              })
+              .map((row) => ({
+                ...row,
+                source,
+                currentPrice,
+              }));
+          })
+          .sort((a, b) => b.center - a.center);
+        if (!combinedRows.length) {
+          mergeTableContainer.innerHTML = '<div class="orderbook-spike-empty">暂无满足条件的区间</div>';
+          return;
+        }
+        const { bidColor, askColor } = getOrderBookColors();
+        const bodyHtml = combinedRows
+          .slice(0, 60)
+          .map((row) => {
+            const totalSize = row.bid + row.ask;
+            const notional = row.currentPrice * totalSize;
+            const sourceLabel = row.source === "okx" ? "O" : "B";
             return `
-              <div class="orderbook-merge-section">
-                <div class="orderbook-merge-section-title">${label}</div>
-                ${renderMergeTableForBook(book)}
-              </div>
+              <tr>
+                <td><span class="orderbook-merge-source ${row.source}">${sourceLabel}</span></td>
+                <td>${formatCompactNumber(row.center)}</td>
+                <td style="color:${bidColor}">${formatCompactNumber(row.bid)}</td>
+                <td style="color:${askColor}">${formatCompactNumber(row.ask)}</td>
+                <td>${formatCompactNumber(totalSize)}</td>
+                <td>${formatCompactNumber(notional)}</td>
+              </tr>
             `;
           })
           .join("");
-        mergeTableContainer.innerHTML = `<div class="orderbook-merge-grid">${sections}</div>`;
+        mergeTableContainer.innerHTML = `
+          <table class="orderbook-merge-table">
+            <thead>
+              <tr>
+                <th>来源</th>
+                <th>区间中心价</th>
+                <th>买挂单</th>
+                <th>卖挂单</th>
+                <th>合计挂单</th>
+                <th>现价换算</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${bodyHtml}
+            </tbody>
+          </table>
+        `;
       }
 
       function renderOrderBook(book) {
