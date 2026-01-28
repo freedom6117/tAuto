@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .binance import BinanceClient
-from .okx import OkxClient
+from .okx import OKX_ORDERBOOK_MAX_DEPTH, OkxClient
 from .storage import CandleStick, SqliteCandleStore
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -62,7 +62,9 @@ BINANCE_BARS = {
     "1w": "1w",
     "1M": "1M",
 }
-VALID_SOURCES = {"okx", "binance"}
+BINANCE_SPOT_SOURCE = "binance"
+
+VALID_SOURCES = {"okx", BINANCE_SPOT_SOURCE}
 
 DEFAULT_INST_ID = os.getenv("TAUTO_INST_ID", "BTC-USDT")
 DEFAULT_DB_PATH = os.getenv("TAUTO_DB_PATH", "candles.db")
@@ -109,14 +111,14 @@ def get_candles(
 ) -> dict:
     if source not in VALID_SOURCES:
         raise HTTPException(status_code=400, detail="Unsupported data source")
-    if source == "binance":
+    if source == BINANCE_SPOT_SOURCE:
         normalized = BINANCE_BARS.get(bar)
         if normalized is None:
             raise HTTPException(status_code=400, detail="Unsupported bar interval")
         resolved_limit = min(limit or 500, 1000)
         if all_data:
             _backfill_binance_history(inst_id, normalized)
-            candles = store.fetch_candles("binance", inst_id, normalized, limit=None)
+            candles = store.fetch_candles(BINANCE_SPOT_SOURCE, inst_id, normalized, limit=None)
             payload = [_to_kline_payload(candle) for candle in candles]
         else:
             start_time = since_ts + 1 if since_ts is not None else None
@@ -128,7 +130,7 @@ def get_candles(
                 end_time=end_ts,
             )
             candles = store.fetch_candles(
-                "binance",
+                BINANCE_SPOT_SOURCE,
                 inst_id,
                 normalized,
                 limit=resolved_limit,
@@ -171,7 +173,7 @@ def get_ticker(
     if source not in VALID_SOURCES:
         raise HTTPException(status_code=400, detail="Unsupported data source")
     try:
-        if source == "binance":
+        if source == BINANCE_SPOT_SOURCE:
             ticker = binance_client.get_ticker(inst_id)
             if not ticker:
                 raise HTTPException(status_code=502, detail="Ticker data unavailable")
@@ -201,15 +203,17 @@ def get_ticker(
 @app.get("/api/orderbook")
 def get_orderbook(
     inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
-    depth: int = Query(20, ge=1, le=200),
+    depth: int = Query(1000, ge=1, le=1000),
     source: str = Query("okx", description="Data source (okx/binance)"),
 ) -> dict:
     if source not in VALID_SOURCES:
         raise HTTPException(status_code=400, detail="Unsupported data source")
-    if source == "binance":
+    resolved_depth = depth
+    if source == BINANCE_SPOT_SOURCE:
         book = binance_client.get_order_book(inst_id, limit=depth)
     else:
-        book = okx_client.get_order_book(inst_id, depth=depth)
+        resolved_depth = min(depth, OKX_ORDERBOOK_MAX_DEPTH)
+        book = okx_client.get_order_book(inst_id, depth=resolved_depth)
     if not book:
         raise HTTPException(status_code=502, detail="Order book data unavailable")
     ts_value = book.get("ts")
@@ -220,7 +224,7 @@ def get_orderbook(
             ts_ms=ts_ms,
             bids=book.get("bids", []),
             asks=book.get("asks", []),
-            depth=depth,
+            depth=resolved_depth,
         )
     except Exception:  # noqa: BLE001 - avoid breaking API on persistence errors
         logging.getLogger(__name__).exception("Failed to store order book snapshot")
@@ -251,7 +255,7 @@ def _store_binance_klines(
         return 0
     candles = [
         CandleStick(
-            source="binance",
+            source=BINANCE_SPOT_SOURCE,
             inst_id=inst_id,
             bar=bar,
             ts=int(row[0]),
