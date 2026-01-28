@@ -1843,6 +1843,7 @@
         });
         const filteredSegments = segments
           .map((segment) => {
+            let candleCount = 0;
             const tradedVolume = dataList.reduce((acc, candle) => {
               const ts = Number(candle.timestamp);
               if (!Number.isFinite(ts)) {
@@ -1851,15 +1852,20 @@
               if (ts < segment.startTs || ts > segment.endTs) {
                 return acc;
               }
+              candleCount += 1;
               return acc + (Number(candle.volume) || 0);
             }, 0);
             return {
               ...segment,
               tradedVolume,
+              candleCount,
             };
           })
           .filter((segment) => {
             if (segment.active) {
+              return true;
+            }
+            if (segment.candleCount === 0) {
               return true;
             }
             return segment.tradedVolume >= segment.maxSize * 0.5;
