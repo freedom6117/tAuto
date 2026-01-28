@@ -74,6 +74,15 @@ class DatabaseBackend(Protocol):
     ) -> None:
         """Upsert order book snapshot data into storage."""
 
+    def fetch_orderbook_snapshots(
+        self,
+        inst_id: str,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+        limit: Optional[int] = 5000,
+    ) -> List[dict]:
+        """Fetch order book snapshots for the given range."""
+
 
 class CacheBackend(Protocol):
     """Optional cache abstraction (e.g. Redis) for future use."""
@@ -310,6 +319,42 @@ class SqliteCandleStore:
                 """,
                 payload,
             )
+
+    def fetch_orderbook_snapshots(
+        self,
+        inst_id: str,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+        limit: Optional[int] = 5000,
+    ) -> List[dict]:
+        where_clauses = ["inst_id = ?"]
+        params: list[object] = [inst_id]
+        if start_ts is not None:
+            where_clauses.append("ts_ms >= ?")
+            params.append(int(start_ts))
+        if end_ts is not None:
+            where_clauses.append("ts_ms <= ?")
+            params.append(int(end_ts))
+        where_sql = " AND ".join(where_clauses)
+        query = (
+            "SELECT ts_ms, bids, asks FROM orderbook_snapshots "
+            f"WHERE {where_sql} ORDER BY ts_ms ASC"
+        )
+        if limit is not None:
+            query = f"{query} LIMIT ?"
+            params.append(int(limit))
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        snapshots = []
+        for row in rows:
+            snapshots.append(
+                {
+                    "ts": int(row[0]),
+                    "bids": json.loads(row[1]),
+                    "asks": json.loads(row[2]),
+                }
+            )
+        return snapshots
 
     def _migrate_schema(self, connection: sqlite3.Connection) -> None:
         cursor = connection.execute(
