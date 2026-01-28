@@ -366,6 +366,26 @@
         font-size: 12px;
       }
 
+      .orderbook-merge-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .orderbook-merge-controls label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .orderbook-merge-controls input {
+        width: 72px;
+        padding: 4px 6px;
+        font-size: 12px;
+      }
+
       .orderbook-spike-table {
         width: 100%;
         border-collapse: collapse;
@@ -388,6 +408,57 @@
       .orderbook-spike-table th:first-child,
       .orderbook-spike-table td:first-child {
         text-align: left;
+      }
+
+      .orderbook-merge-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+
+      .orderbook-merge-table th,
+      .orderbook-merge-table td {
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--panel-border);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .orderbook-merge-table th {
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+
+      .orderbook-merge-table th:first-child,
+      .orderbook-merge-table td:first-child {
+        text-align: left;
+      }
+
+      .orderbook-merge-source {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 18px;
+        padding: 0 6px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .orderbook-merge-source.okx {
+        background: #38bdf8;
+      }
+
+      .orderbook-merge-source.binance {
+        background: #facc15;
+      }
+
+      .orderbook-merge-section-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-primary);
       }
 
       .orderbook-spike-empty {
@@ -650,6 +721,9 @@
               <button class="orderbook-tab" type="button" data-tab="spike" role="tab" aria-selected="false">
                 爆单/撤单
               </button>
+              <button class="orderbook-tab" type="button" data-tab="merge" role="tab" aria-selected="false">
+                区间合并
+              </button>
             </div>
             <div class="orderbook-panel-content active" data-tab-panel="depth" role="tabpanel">
               <canvas id="orderbookCanvas"></canvas>
@@ -662,6 +736,15 @@
                 <input id="spikeThresholdInput" type="number" min="0" step="1" value="50000" />
               </div>
               <div id="spikeTableContainer"></div>
+            </div>
+            <div class="orderbook-panel-content" data-tab-panel="merge" role="tabpanel">
+              <div class="orderbook-merge-controls">
+                <label for="mergeIntervalInput">合并步长($)</label>
+                <input id="mergeIntervalInput" type="number" min="0" step="0.1" value="5" />
+                <label for="mergeThresholdInput">显示阈值(k)</label>
+                <input id="mergeThresholdInput" type="number" min="0" step="0.1" value="100" />
+              </div>
+              <div id="mergeTableContainer"></div>
             </div>
           </div>
         </aside>
@@ -687,6 +770,9 @@
       const spikeWindowInput = document.getElementById("spikeWindowInput");
       const spikeThresholdInput = document.getElementById("spikeThresholdInput");
       const spikeTableContainer = document.getElementById("spikeTableContainer");
+      const mergeIntervalInput = document.getElementById("mergeIntervalInput");
+      const mergeThresholdInput = document.getElementById("mergeThresholdInput");
+      const mergeTableContainer = document.getElementById("mergeTableContainer");
       const chart = window.klinecharts ? klinecharts.init("chart") : null;
       const candlePaneId = "candle_pane";
       const volumePaneId = "volume_pane";
@@ -723,6 +809,8 @@
           instruments: [
             { value: "BTCUSDT", label: "BTCUSDT" },
             { value: "ETHUSDT", label: "ETHUSDT" },
+            { value: "BTCUSDT", label: "BTCUSDT 永续" },
+            { value: "ETHUSDT", label: "ETHUSDT 永续" },
           ],
         },
       };
@@ -1171,6 +1259,16 @@
         return Number.isFinite(value) && value >= 0 ? value : 0;
       }
 
+      function getMergeInterval() {
+        const value = Number(mergeIntervalInput?.value);
+        return Number.isFinite(value) && value > 0 ? value : 5;
+      }
+
+      function getMergeThreshold() {
+        const value = Number(mergeThresholdInput?.value);
+        return Number.isFinite(value) && value >= 0 ? value : 0;
+      }
+
       function getOrderBookColors() {
         const bidColor = useReversedColors ? "#ef4444" : "#22c55e";
         const askColor = useReversedColors ? "#22c55e" : "#ef4444";
@@ -1338,6 +1436,243 @@
                 <th>价格</th>
                 <th>数量变化</th>
                 <th>变化值</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${bodyHtml}
+            </tbody>
+          </table>
+        `;
+      }
+
+      function getOrderBookMidPrice(book) {
+        if (!book) {
+          return null;
+        }
+        const bestBid = book.bids.reduce((max, row) => (row.price > max ? row.price : max), -Infinity);
+        const bestAsk = book.asks.reduce((min, row) => (row.price < min ? row.price : min), Infinity);
+        if (Number.isFinite(bestBid) && Number.isFinite(bestAsk)) {
+          return (bestBid + bestAsk) / 2;
+        }
+        if (Number.isFinite(bestBid)) {
+          return bestBid;
+        }
+        if (Number.isFinite(bestAsk)) {
+          return bestAsk;
+        }
+        return null;
+      }
+
+      function mapInstrumentForSource(source, instId) {
+        const normalized = String(instId || "");
+        if (!normalized) {
+          return "";
+        }
+        if (source === "okx") {
+          if (normalized.includes("-")) {
+            return normalized.replace("-SWAP", "");
+          }
+          if (normalized.endsWith("USDT")) {
+            return `${normalized.slice(0, -4)}-USDT`;
+          }
+          return normalized;
+        }
+        if (source === "binance") {
+          return normalized.replace(/-/g, "").replace("SWAP", "");
+        }
+        return normalized;
+      }
+
+      function collectMergedBuckets(book, interval) {
+        const buckets = new Map();
+        const half = interval / 2;
+        const addToBucket = (item, sideKey) => {
+          const center = Math.round(item.price / interval) * interval;
+          if (!Number.isFinite(center)) {
+            return;
+          }
+          const key = center.toFixed(8);
+          const existing = buckets.get(key) ?? { center, rangeStart: center - half, rangeEnd: center + half, bid: 0, ask: 0 };
+          existing[sideKey] += item.size;
+          buckets.set(key, existing);
+        };
+        book.bids.forEach((item) => addToBucket(item, "bid"));
+        book.asks.forEach((item) => addToBucket(item, "ask"));
+        return Array.from(buckets.values()).sort((a, b) => b.center - a.center);
+      }
+
+      async function loadOrderBookForSource(source, instId) {
+        const params = new URLSearchParams({
+          inst_id: instId,
+          depth: "1000",
+          source,
+        });
+        const response = await fetch(`/api/orderbook?${params.toString()}`);
+        if (!response.ok) {
+          throw new Error(`请求失败：${response.status}`);
+        }
+        const payload = await response.json();
+        return normalizeOrderBook(payload);
+      }
+
+      async function loadMergeOrderBooks() {
+        const selectedSources = ["okx", "binance"];
+        const instId = instSelect.value;
+        const tasks = selectedSources.map(async (source) => {
+          const mappedInst = mapInstrumentForSource(source, instId);
+          if (!mappedInst) {
+            return null;
+          }
+          try {
+            const book = await loadOrderBookForSource(source, mappedInst);
+            return [source, book];
+          } catch (error) {
+            console.warn("合并挂单加载失败", source, error);
+            return [source, null];
+          }
+        });
+        const results = await Promise.all(tasks);
+        return results.reduce((acc, entry) => {
+          if (!entry) {
+            return acc;
+          }
+          const [source, book] = entry;
+          acc[source] = book;
+          return acc;
+        }, {});
+      }
+
+      function renderMergeTableForBook(book, source) {
+        const interval = getMergeInterval();
+        const thresholdK = getMergeThreshold();
+        const thresholdValue = thresholdK * 1_000;
+        const currentPrice = getOrderBookMidPrice(book);
+        if (!Number.isFinite(currentPrice)) {
+          return '<div class="orderbook-spike-empty">当前价格不可用</div>';
+        }
+        const rows = collectMergedBuckets(book, interval).filter((row) => {
+          const totalSize = row.bid + row.ask;
+          if (thresholdValue <= 0) {
+            return totalSize > 0;
+          }
+          return currentPrice * totalSize >= thresholdValue;
+        });
+        if (!rows.length) {
+          return '<div class="orderbook-spike-empty">暂无满足条件的区间</div>';
+        }
+        const { bidColor, askColor } = getOrderBookColors();
+        const sourceLabel = source === "okx" ? "O" : "B";
+        const bodyHtml = rows
+          .slice(0, 30)
+          .map((row) => {
+            const totalSize = row.bid + row.ask;
+            const notional = currentPrice * totalSize;
+            return `
+              <tr>
+                <td><span class="orderbook-merge-source ${source}">${sourceLabel}</span></td>
+                <td>${formatCompactNumber(row.center)}</td>
+                <td style="color:${bidColor}">${formatCompactNumber(row.bid)}</td>
+                <td style="color:${askColor}">${formatCompactNumber(row.ask)}</td>
+                <td>${formatCompactNumber(totalSize)}</td>
+                <td>${formatCompactNumber(notional)}</td>
+              </tr>
+            `;
+          })
+          .join("");
+        return `
+          <table class="orderbook-merge-table">
+            <thead>
+              <tr>
+                <th>来源</th>
+                <th>区间中心价</th>
+                <th>买挂单</th>
+                <th>卖挂单</th>
+                <th>合计挂单</th>
+                <th>现价换算</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${bodyHtml}
+            </tbody>
+          </table>
+        `;
+      }
+
+      async function renderMergeTable() {
+        if (!mergeTableContainer) {
+          return;
+        }
+        const orderBooks = await loadMergeOrderBooks();
+        const sources = ["okx", "binance"];
+        const hasAnyData = sources.some((source) => {
+          const book = orderBooks[source];
+          return book && (book.bids.length || book.asks.length);
+        });
+        if (!hasAnyData) {
+          mergeTableContainer.innerHTML = '<div class="orderbook-spike-empty">暂无挂单数据</div>';
+          return;
+        }
+        const interval = getMergeInterval();
+        const thresholdK = getMergeThreshold();
+        const thresholdValue = thresholdK * 1_000;
+        const combinedRows = sources
+          .flatMap((source) => {
+            const book = orderBooks[source];
+            if (!book || (!book.bids.length && !book.asks.length)) {
+              return [];
+            }
+            const currentPrice = getOrderBookMidPrice(book);
+            if (!Number.isFinite(currentPrice)) {
+              return [];
+            }
+            return collectMergedBuckets(book, interval)
+              .filter((row) => {
+                const totalSize = row.bid + row.ask;
+                if (thresholdValue <= 0) {
+                  return totalSize > 0;
+                }
+                return currentPrice * totalSize >= thresholdValue;
+              })
+              .map((row) => ({
+                ...row,
+                source,
+                currentPrice,
+              }));
+          })
+          .sort((a, b) => b.center - a.center);
+        if (!combinedRows.length) {
+          mergeTableContainer.innerHTML = '<div class="orderbook-spike-empty">暂无满足条件的区间</div>';
+          return;
+        }
+        const { bidColor, askColor } = getOrderBookColors();
+        const bodyHtml = combinedRows
+          .slice(0, 60)
+          .map((row) => {
+            const totalSize = row.bid + row.ask;
+            const notional = row.currentPrice * totalSize;
+            const sourceLabel = row.source === "okx" ? "O" : "B";
+            return `
+              <tr>
+                <td><span class="orderbook-merge-source ${row.source}">${sourceLabel}</span></td>
+                <td>${formatCompactNumber(row.center)}</td>
+                <td style="color:${bidColor}">${formatCompactNumber(row.bid)}</td>
+                <td style="color:${askColor}">${formatCompactNumber(row.ask)}</td>
+                <td>${formatCompactNumber(totalSize)}</td>
+                <td>${formatCompactNumber(notional)}</td>
+              </tr>
+            `;
+          })
+          .join("");
+        mergeTableContainer.innerHTML = `
+          <table class="orderbook-merge-table">
+            <thead>
+              <tr>
+                <th>来源</th>
+                <th>区间中心价</th>
+                <th>买挂单</th>
+                <th>卖挂单</th>
+                <th>合计挂单</th>
+                <th>现价换算</th>
               </tr>
             </thead>
             <tbody>
@@ -1715,7 +2050,7 @@
         try {
           const params = new URLSearchParams({
             inst_id: instSelect.value,
-            depth: "20",
+            depth: "1000",
             source: sourceSelect.value,
           });
           const response = await fetch(`/api/orderbook?${params.toString()}`);
@@ -1734,6 +2069,7 @@
           addOrderBookSnapshot(lastOrderBook);
           renderOrderBook(lastOrderBook);
           renderSpikeTable();
+          renderMergeTable();
           const ts = lastOrderBook.ts ? new Date(lastOrderBook.ts).toLocaleTimeString() : "--";
           orderbookStatus.textContent = `更新 ${ts}`;
         } catch (error) {
@@ -1757,6 +2093,8 @@
           });
           if (tab === "spike") {
             renderSpikeTable();
+          } else if (tab === "merge") {
+            renderMergeTable();
           } else {
             resizeOrderBookCanvas();
           }
@@ -1798,6 +2136,8 @@
       });
       spikeWindowInput?.addEventListener("change", renderSpikeTable);
       spikeThresholdInput?.addEventListener("change", renderSpikeTable);
+      mergeIntervalInput?.addEventListener("change", renderMergeTable);
+      mergeThresholdInput?.addEventListener("change", renderMergeTable);
       themeToggle.addEventListener("click", () => {
         setTheme(currentTheme === "light" ? "dark" : "light");
       });

@@ -13,6 +13,9 @@ class OkxApiError(RuntimeError):
     """当 OKX 接口返回非 0 code 时抛出。"""
 
 
+OKX_ORDERBOOK_MAX_DEPTH = 400
+
+
 @dataclass
 class OkxClient:
     """OKX 公共 REST 接口客户端。"""
@@ -52,9 +55,10 @@ class OkxClient:
 
     def get_order_book(self, inst_id: str, depth: int = 5) -> Dict[str, Any]:
         """获取指定交易对的盘口数据。"""
+        resolved_depth = min(max(depth, 1), OKX_ORDERBOOK_MAX_DEPTH)
         payload = self._request(
             "/api/v5/market/books",
-            {"instId": inst_id, "sz": str(depth)},
+            {"instId": inst_id, "sz": str(resolved_depth)},
         )
         data = payload.get("data", [])
         return data[0] if data else {}
@@ -101,4 +105,4 @@ def summarize_instruments(instruments: Iterable[Dict[str, Any]]) -> List[str]:
     return [instrument.get("instId", "") for instrument in instruments]
 
 
-__all__ = ["OkxApiError", "OkxClient", "summarize_instruments"]
+__all__ = ["OKX_ORDERBOOK_MAX_DEPTH", "OkxApiError", "OkxClient", "summarize_instruments"]
