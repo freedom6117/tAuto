@@ -496,6 +496,22 @@
         transform: translate(-50%, -100%);
         transition: opacity 0.15s ease;
       }
+
+      .orderbook-band-tooltip {
+        position: absolute;
+        z-index: 30;
+        background: var(--tooltip-bg);
+        color: var(--tooltip-text);
+        border: 1px solid var(--tooltip-border);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+        pointer-events: none;
+        white-space: nowrap;
+        opacity: 0;
+        transform: translate(12px, -12px);
+        transition: opacity 0.15s ease;
+      }
     </style>
   </head>
   <body>
@@ -838,6 +854,9 @@
       let orderBookBandContext = null;
       let orderBookBandRequestId = 0;
       let orderBookBandLatestAppliedId = 0;
+      let orderBookBandTooltip = null;
+      let orderBookBandHoverTimer = null;
+      let orderBookBandHoverTarget = null;
       let historyLoadToken = 0;
       let historyLoadInFlight = false;
       const HISTORY_BATCH_SIZE = 500;
@@ -1255,6 +1274,19 @@
         return Number(value).toLocaleString(undefined, {
           maximumFractionDigits: 4,
         });
+      }
+
+      function formatDuration(ms) {
+        if (!Number.isFinite(ms) || ms < 0) {
+          return "--";
+        }
+        const totalSeconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        if (minutes > 0) {
+          return `${minutes}分${seconds}秒`;
+        }
+        return `${seconds}秒`;
       }
 
       function getSpikeWindowSeconds() {
@@ -1741,6 +1773,7 @@
           orderBookBandSegments = [];
           return;
         }
+        const dataList = chart ? chart.getDataList() : [];
         const thresholdValue = getOrderBookBandThresholdValue();
         const interval = getOrderBookBandInterval();
         const activeSegments = new Map();
@@ -1808,7 +1841,30 @@
         activeSegments.forEach((segment) => {
           segments.push({ ...segment, active: true });
         });
-        orderBookBandSegments = segments;
+        const filteredSegments = segments
+          .map((segment) => {
+            const tradedVolume = dataList.reduce((acc, candle) => {
+              const ts = Number(candle.timestamp);
+              if (!Number.isFinite(ts)) {
+                return acc;
+              }
+              if (ts < segment.startTs || ts > segment.endTs) {
+                return acc;
+              }
+              return acc + (Number(candle.volume) || 0);
+            }, 0);
+            return {
+              ...segment,
+              tradedVolume,
+            };
+          })
+          .filter((segment) => {
+            if (segment.active) {
+              return true;
+            }
+            return segment.tradedVolume >= segment.maxSize * 0.5;
+          });
+        orderBookBandSegments = filteredSegments;
       }
 
       function renderOrderBookBands() {
@@ -1823,6 +1879,7 @@
         }
         const maxSize = Math.max(1, ...orderBookBandSegments.map((segment) => segment.maxSize || 0));
         orderBookBandSegments.forEach((segment) => {
+          segment.renderRect = null;
           const start = chart.convertToPixel(
             { timestamp: segment.startTs, value: segment.price },
             { paneId: candlePaneId },
@@ -1842,6 +1899,12 @@
           const alpha = segment.active ? 0.4 : 1;
           orderBookBandContext.fillStyle = `rgba(${baseColor}, ${alpha})`;
           orderBookBandContext.fillRect(x, y, bandWidth, thickness);
+          segment.renderRect = {
+            x,
+            y,
+            width: bandWidth,
+            height: thickness,
+          };
         });
       }
 
@@ -1972,7 +2035,15 @@
         return tooltip;
       }
 
+      function createOrderBookBandTooltip() {
+        const tooltip = document.createElement("div");
+        tooltip.className = "orderbook-band-tooltip";
+        chartContainer.appendChild(tooltip);
+        return tooltip;
+      }
+
       const volumeTooltip = chart ? createVolumeTooltip() : null;
+      orderBookBandTooltip = chart ? createOrderBookBandTooltip() : null;
 
       function updateVolumeTooltip(payload) {
         if (!chart || !volumeTooltip) {
@@ -2011,6 +2082,86 @@
         volumeTooltip.style.left = `${x}px`;
         volumeTooltip.style.top = `${y}px`;
         volumeTooltip.style.opacity = 1;
+      }
+
+      function hideOrderBookBandTooltip() {
+        if (!orderBookBandTooltip) {
+          return;
+        }
+        orderBookBandTooltip.style.opacity = 0;
+      }
+
+      function updateOrderBookBandTooltip(segment, clientX, clientY) {
+        if (!orderBookBandTooltip) {
+          return;
+        }
+        const startTime = new Date(segment.startTs).toLocaleString();
+        const endTime = new Date(segment.endTs).toLocaleString();
+        const duration = formatDuration(segment.endTs - segment.startTs);
+        orderBookBandTooltip.innerHTML = [
+          `价格：${formatCompactNumber(segment.price)}`,
+          `挂单量：${formatCompactNumber(segment.maxSize)}`,
+          `起始：${startTime}`,
+          `结束：${endTime}`,
+          `持续：${duration}`,
+          `成交量：${formatCompactNumber(segment.tradedVolume ?? 0)}`,
+        ].join("<br />");
+        orderBookBandTooltip.style.left = `${clientX}px`;
+        orderBookBandTooltip.style.top = `${clientY}px`;
+        orderBookBandTooltip.style.opacity = 1;
+      }
+
+      function handleOrderBookBandHover(event) {
+        if (!chart || !orderBookBandTooltip) {
+          return;
+        }
+        const pane = chart.getDom(candlePaneId, klinecharts.DomPosition.Main);
+        if (!pane) {
+          return;
+        }
+        const paneRect = pane.getBoundingClientRect();
+        const x = event.clientX - paneRect.left;
+        const y = event.clientY - paneRect.top;
+        if (x < 0 || y < 0 || x > paneRect.width || y > paneRect.height) {
+          if (orderBookBandHoverTimer) {
+            clearTimeout(orderBookBandHoverTimer);
+            orderBookBandHoverTimer = null;
+          }
+          orderBookBandHoverTarget = null;
+          hideOrderBookBandTooltip();
+          return;
+        }
+        const target = orderBookBandSegments.find((segment) => {
+          const rect = segment.renderRect;
+          if (!rect) {
+            return false;
+          }
+          return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+        });
+        if (!target) {
+          if (orderBookBandHoverTimer) {
+            clearTimeout(orderBookBandHoverTimer);
+            orderBookBandHoverTimer = null;
+          }
+          orderBookBandHoverTarget = null;
+          hideOrderBookBandTooltip();
+          return;
+        }
+        if (orderBookBandHoverTarget !== target) {
+          if (orderBookBandHoverTimer) {
+            clearTimeout(orderBookBandHoverTimer);
+          }
+          orderBookBandHoverTarget = target;
+          hideOrderBookBandTooltip();
+          orderBookBandHoverTimer = setTimeout(() => {
+            updateOrderBookBandTooltip(target, event.clientX, event.clientY);
+          }, 1000);
+          return;
+        }
+        if (orderBookBandTooltip.style.opacity === "1") {
+          orderBookBandTooltip.style.left = `${event.clientX}px`;
+          orderBookBandTooltip.style.top = `${event.clientY}px`;
+        }
       }
 
       function normalizeCandles(list) {
@@ -2492,6 +2643,15 @@
         ensureOrderBookBandCanvas();
         resizeOrderBookBandCanvas();
       }
+      chartContainer.addEventListener("mousemove", handleOrderBookBandHover);
+      chartContainer.addEventListener("mouseleave", () => {
+        if (orderBookBandHoverTimer) {
+          clearTimeout(orderBookBandHoverTimer);
+          orderBookBandHoverTimer = null;
+        }
+        orderBookBandHoverTarget = null;
+        hideOrderBookBandTooltip();
+      });
 
       setInterval(() => {
         if (!chart) {
