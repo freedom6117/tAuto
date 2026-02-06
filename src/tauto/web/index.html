@@ -496,6 +496,22 @@
         transform: translate(-50%, -100%);
         transition: opacity 0.15s ease;
       }
+
+      .orderbook-band-tooltip {
+        position: absolute;
+        z-index: 30;
+        background: var(--tooltip-bg);
+        color: var(--tooltip-text);
+        border: 1px solid var(--tooltip-border);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+        pointer-events: none;
+        white-space: nowrap;
+        opacity: 0;
+        transform: translate(12px, -12px);
+        transition: opacity 0.15s ease;
+      }
     </style>
   </head>
   <body>
@@ -832,10 +848,20 @@
       let lastOrderBook = null;
       let orderBookHistory = [];
       const orderBookContext = orderbookCanvas?.getContext("2d") ?? null;
+      let orderBookBandHistory = [];
+      let orderBookBandSegments = [];
+      let orderBookBandCanvas = null;
+      let orderBookBandContext = null;
+      let orderBookBandRequestId = 0;
+      let orderBookBandLatestAppliedId = 0;
+      let orderBookBandTooltip = null;
+      let orderBookBandHoverTimer = null;
+      let orderBookBandHoverTarget = null;
       let historyLoadToken = 0;
       let historyLoadInFlight = false;
       const HISTORY_BATCH_SIZE = 500;
       const ORDERBOOK_HISTORY_LIMIT_MS = 10 * 60 * 1000;
+      const ORDERBOOK_BAND_LIMIT = 5000;
       if (!chart) {
         meta.textContent = "KLineChart 资源加载失败，请检查静态资源是否可访问。";
       } else {
@@ -1094,6 +1120,7 @@
         chart.setPaneOptions({ id: volumePaneId, height: volumeHeight });
         chart.setPaneOptions({ id: macdPaneId, height: macdHeight });
         chart.resize();
+        resizeOrderBookBandCanvas();
       }
 
       function setTheme(theme) {
@@ -1249,6 +1276,19 @@
         });
       }
 
+      function formatDuration(ms) {
+        if (!Number.isFinite(ms) || ms < 0) {
+          return "--";
+        }
+        const totalSeconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        if (minutes > 0) {
+          return `${minutes}分${seconds}秒`;
+        }
+        return `${seconds}秒`;
+      }
+
       function getSpikeWindowSeconds() {
         const value = Math.floor(Number(spikeWindowInput?.value));
         return Number.isFinite(value) && value > 0 ? value : 30;
@@ -1267,6 +1307,14 @@
       function getMergeThreshold() {
         const value = Number(mergeThresholdInput?.value);
         return Number.isFinite(value) && value >= 0 ? value : 0;
+      }
+
+      function getOrderBookBandInterval() {
+        return getMergeInterval();
+      }
+
+      function getOrderBookBandThresholdValue() {
+        return getMergeThreshold() * 1_000;
       }
 
       function getOrderBookColors() {
@@ -1682,6 +1730,238 @@
         `;
       }
 
+      function ensureOrderBookBandCanvas() {
+        if (!chart) {
+          return;
+        }
+        if (!orderBookBandCanvas) {
+          const paneRoot = chart.getDom(candlePaneId, klinecharts.DomPosition.Root);
+          if (!paneRoot) {
+            return;
+          }
+          orderBookBandCanvas = document.createElement("canvas");
+          orderBookBandCanvas.className = "orderbook-band-overlay";
+          orderBookBandCanvas.style.position = "absolute";
+          orderBookBandCanvas.style.inset = "0";
+          orderBookBandCanvas.style.pointerEvents = "none";
+          orderBookBandCanvas.style.zIndex = "2";
+          paneRoot.style.position = "relative";
+          paneRoot.appendChild(orderBookBandCanvas);
+          orderBookBandContext = orderBookBandCanvas.getContext("2d");
+        }
+      }
+
+      function resizeOrderBookBandCanvas() {
+        if (!chart || !orderBookBandCanvas || !orderBookBandContext) {
+          return;
+        }
+        const paneSize = chart.getSize(candlePaneId, klinecharts.DomPosition.Main);
+        if (!paneSize || !paneSize.width || !paneSize.height) {
+          return;
+        }
+        const ratio = window.devicePixelRatio || 1;
+        orderBookBandCanvas.width = Math.floor(paneSize.width * ratio);
+        orderBookBandCanvas.height = Math.floor(paneSize.height * ratio);
+        orderBookBandCanvas.style.width = `${paneSize.width}px`;
+        orderBookBandCanvas.style.height = `${paneSize.height}px`;
+        orderBookBandContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+        renderOrderBookBands();
+      }
+
+      function rebuildOrderBookBands() {
+        if (!orderBookBandHistory.length) {
+          orderBookBandSegments = [];
+          return;
+        }
+        const dataList = chart ? chart.getDataList() : [];
+        const thresholdValue = getOrderBookBandThresholdValue();
+        const interval = getOrderBookBandInterval();
+        const activeSegments = new Map();
+        const segments = [];
+        orderBookBandHistory.forEach((snapshot) => {
+          const snapshotTs = snapshot.ts;
+          if (!snapshotTs) {
+            return;
+          }
+          const currentPrice = getOrderBookMidPrice(snapshot);
+          if (!Number.isFinite(currentPrice)) {
+            return;
+          }
+          const buckets = collectMergedBuckets(snapshot, interval);
+          const nextActiveKeys = new Set();
+          buckets.forEach((bucket) => {
+            const priceKey = bucket.center.toFixed(8);
+            const bidNotional = currentPrice * bucket.bid;
+            const askNotional = currentPrice * bucket.ask;
+            if (bucket.bid > 0 && (thresholdValue <= 0 || bidNotional >= thresholdValue)) {
+              const key = `bid:${priceKey}`;
+              nextActiveKeys.add(key);
+              if (activeSegments.has(key)) {
+                const segment = activeSegments.get(key);
+                segment.endTs = snapshotTs;
+                segment.maxSize = Math.max(segment.maxSize, bucket.bid);
+              } else {
+                activeSegments.set(key, {
+                  side: "bid",
+                  price: bucket.center,
+                  startTs: snapshotTs,
+                  endTs: snapshotTs,
+                  maxSize: bucket.bid,
+                });
+              }
+            }
+            if (bucket.ask > 0 && (thresholdValue <= 0 || askNotional >= thresholdValue)) {
+              const key = `ask:${priceKey}`;
+              nextActiveKeys.add(key);
+              if (activeSegments.has(key)) {
+                const segment = activeSegments.get(key);
+                segment.endTs = snapshotTs;
+                segment.maxSize = Math.max(segment.maxSize, bucket.ask);
+              } else {
+                activeSegments.set(key, {
+                  side: "ask",
+                  price: bucket.center,
+                  startTs: snapshotTs,
+                  endTs: snapshotTs,
+                  maxSize: bucket.ask,
+                });
+              }
+            }
+          });
+          Array.from(activeSegments.keys()).forEach((key) => {
+            if (!nextActiveKeys.has(key)) {
+              const segment = activeSegments.get(key);
+              if (segment) {
+                segments.push({ ...segment, active: false });
+              }
+              activeSegments.delete(key);
+            }
+          });
+        });
+        activeSegments.forEach((segment) => {
+          segments.push({ ...segment, active: true });
+        });
+        const filteredSegments = segments
+          .map((segment) => {
+            let candleCount = 0;
+            const tradedVolume = dataList.reduce((acc, candle) => {
+              const ts = Number(candle.timestamp);
+              if (!Number.isFinite(ts)) {
+                return acc;
+              }
+              if (ts < segment.startTs || ts > segment.endTs) {
+                return acc;
+              }
+              candleCount += 1;
+              return acc + (Number(candle.volume) || 0);
+            }, 0);
+            return {
+              ...segment,
+              tradedVolume,
+              candleCount,
+            };
+          })
+          .filter((segment) => {
+            if (segment.active) {
+              return true;
+            }
+            if (segment.candleCount === 0) {
+              return true;
+            }
+            return segment.tradedVolume >= segment.maxSize * 0.5;
+          });
+        orderBookBandSegments = filteredSegments;
+      }
+
+      function renderOrderBookBands() {
+        if (!chart || !orderBookBandContext || !orderBookBandCanvas) {
+          return;
+        }
+        const width = orderBookBandCanvas.clientWidth;
+        const height = orderBookBandCanvas.clientHeight;
+        orderBookBandContext.clearRect(0, 0, width, height);
+        if (!orderBookBandSegments.length) {
+          return;
+        }
+        const maxSize = Math.max(1, ...orderBookBandSegments.map((segment) => segment.maxSize || 0));
+        orderBookBandSegments.forEach((segment) => {
+          segment.renderRect = null;
+          const start = chart.convertToPixel(
+            { timestamp: segment.startTs, value: segment.price },
+            { paneId: candlePaneId },
+          );
+          const end = chart.convertToPixel(
+            { timestamp: segment.endTs, value: segment.price },
+            { paneId: candlePaneId },
+          );
+          if (!start || !end || !Number.isFinite(start.x) || !Number.isFinite(start.y)) {
+            return;
+          }
+          const thickness = 2 + (segment.maxSize / maxSize) * 10;
+          const x = Math.min(start.x, end.x);
+          const y = start.y - thickness / 2;
+          const bandWidth = Math.max(2, Math.abs(end.x - start.x));
+          const baseColor = segment.side === "bid" ? "239,68,68" : "34,197,94";
+          const alpha = segment.active ? 0.4 : 1;
+          orderBookBandContext.fillStyle = `rgba(${baseColor}, ${alpha})`;
+          orderBookBandContext.fillRect(x, y, bandWidth, thickness);
+          segment.renderRect = {
+            x,
+            y,
+            width: bandWidth,
+            height: thickness,
+          };
+        });
+      }
+
+      async function loadOrderBookHistoryForChart() {
+        if (!chart) {
+          return;
+        }
+        const dataList = chart.getDataList();
+        if (!dataList.length) {
+          orderBookBandHistory = [];
+          orderBookBandSegments = [];
+          renderOrderBookBands();
+          return;
+        }
+        const startTs = Number(dataList[0].timestamp);
+        const endTs = Number(dataList[dataList.length - 1].timestamp);
+        if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) {
+          return;
+        }
+        const requestId = ++orderBookBandRequestId;
+        try {
+          const params = new URLSearchParams({
+            inst_id: instSelect.value,
+            start_ts: String(startTs),
+            end_ts: String(endTs),
+            limit: String(ORDERBOOK_BAND_LIMIT),
+          });
+          const response = await fetch(`/api/orderbook/history?${params.toString()}`);
+          if (!response.ok) {
+            throw new Error(`请求失败：${response.status}`);
+          }
+          const payload = await response.json();
+          if (requestId < orderBookBandLatestAppliedId) {
+            return;
+          }
+          orderBookBandLatestAppliedId = requestId;
+          orderBookBandHistory = (payload.data || []).map((row) =>
+            normalizeOrderBook({
+              instId: payload.instId,
+              ts: row.ts,
+              bids: row.bids,
+              asks: row.asks,
+            }),
+          );
+          rebuildOrderBookBands();
+          renderOrderBookBands();
+        } catch (error) {
+          console.warn("历史挂单加载失败", error);
+        }
+      }
+
       function renderOrderBook(book) {
         if (!orderBookContext || !orderbookCanvas) {
           return;
@@ -1761,7 +2041,15 @@
         return tooltip;
       }
 
+      function createOrderBookBandTooltip() {
+        const tooltip = document.createElement("div");
+        tooltip.className = "orderbook-band-tooltip";
+        chartContainer.appendChild(tooltip);
+        return tooltip;
+      }
+
       const volumeTooltip = chart ? createVolumeTooltip() : null;
+      orderBookBandTooltip = chart ? createOrderBookBandTooltip() : null;
 
       function updateVolumeTooltip(payload) {
         if (!chart || !volumeTooltip) {
@@ -1802,6 +2090,86 @@
         volumeTooltip.style.opacity = 1;
       }
 
+      function hideOrderBookBandTooltip() {
+        if (!orderBookBandTooltip) {
+          return;
+        }
+        orderBookBandTooltip.style.opacity = 0;
+      }
+
+      function updateOrderBookBandTooltip(segment, clientX, clientY) {
+        if (!orderBookBandTooltip) {
+          return;
+        }
+        const startTime = new Date(segment.startTs).toLocaleString();
+        const endTime = new Date(segment.endTs).toLocaleString();
+        const duration = formatDuration(segment.endTs - segment.startTs);
+        orderBookBandTooltip.innerHTML = [
+          `价格：${formatCompactNumber(segment.price)}`,
+          `挂单量：${formatCompactNumber(segment.maxSize)}`,
+          `起始：${startTime}`,
+          `结束：${endTime}`,
+          `持续：${duration}`,
+          `成交量：${formatCompactNumber(segment.tradedVolume ?? 0)}`,
+        ].join("<br />");
+        orderBookBandTooltip.style.left = `${clientX}px`;
+        orderBookBandTooltip.style.top = `${clientY}px`;
+        orderBookBandTooltip.style.opacity = 1;
+      }
+
+      function handleOrderBookBandHover(event) {
+        if (!chart || !orderBookBandTooltip) {
+          return;
+        }
+        const pane = chart.getDom(candlePaneId, klinecharts.DomPosition.Main);
+        if (!pane) {
+          return;
+        }
+        const paneRect = pane.getBoundingClientRect();
+        const x = event.clientX - paneRect.left;
+        const y = event.clientY - paneRect.top;
+        if (x < 0 || y < 0 || x > paneRect.width || y > paneRect.height) {
+          if (orderBookBandHoverTimer) {
+            clearTimeout(orderBookBandHoverTimer);
+            orderBookBandHoverTimer = null;
+          }
+          orderBookBandHoverTarget = null;
+          hideOrderBookBandTooltip();
+          return;
+        }
+        const target = orderBookBandSegments.find((segment) => {
+          const rect = segment.renderRect;
+          if (!rect) {
+            return false;
+          }
+          return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+        });
+        if (!target) {
+          if (orderBookBandHoverTimer) {
+            clearTimeout(orderBookBandHoverTimer);
+            orderBookBandHoverTimer = null;
+          }
+          orderBookBandHoverTarget = null;
+          hideOrderBookBandTooltip();
+          return;
+        }
+        if (orderBookBandHoverTarget !== target) {
+          if (orderBookBandHoverTimer) {
+            clearTimeout(orderBookBandHoverTimer);
+          }
+          orderBookBandHoverTarget = target;
+          hideOrderBookBandTooltip();
+          orderBookBandHoverTimer = setTimeout(() => {
+            updateOrderBookBandTooltip(target, event.clientX, event.clientY);
+          }, 1000);
+          return;
+        }
+        if (orderBookBandTooltip.style.opacity === "1") {
+          orderBookBandTooltip.style.left = `${event.clientX}px`;
+          orderBookBandTooltip.style.top = `${event.clientY}px`;
+        }
+      }
+
       function normalizeCandles(list) {
         return list.map((item) => ({
           ...item,
@@ -1826,6 +2194,9 @@
         priceRefreshLatestAppliedId = 0;
         historyLoadInFlight = false;
         historyLoadToken += 1;
+        orderBookBandHistory = [];
+        orderBookBandSegments = [];
+        renderOrderBookBands();
         if (chart) {
           chart.applyNewData([]);
         }
@@ -1902,6 +2273,7 @@
           }
           updateLastTimestamp(sortedData);
           updateMeta(payload);
+          loadOrderBookHistoryForChart();
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
         } finally {
@@ -1944,6 +2316,9 @@
           updatePaneHeights();
           updateLastTimestamp(sortedData);
           updateMeta(payload, "补全中");
+          ensureOrderBookBandCanvas();
+          resizeOrderBookBandCanvas();
+          loadOrderBookHistoryForChart();
         } catch (error) {
           meta.textContent = `加载失败：${error.message}`;
         } finally {
@@ -1992,6 +2367,7 @@
           }
           chart.applyMoreData(sortedData);
           updateMeta(payload, "补全中");
+          loadOrderBookHistoryForChart();
         } catch (error) {
           meta.textContent = `补全失败：${error.message}`;
         } finally {
@@ -2070,6 +2446,13 @@
           renderOrderBook(lastOrderBook);
           renderSpikeTable();
           renderMergeTable();
+          if (lastOrderBook?.ts) {
+            orderBookBandHistory.push(lastOrderBook);
+            const cutoff = lastOrderBook.ts - ORDERBOOK_HISTORY_LIMIT_MS;
+            orderBookBandHistory = orderBookBandHistory.filter((entry) => entry.ts && entry.ts >= cutoff);
+            rebuildOrderBookBands();
+            renderOrderBookBands();
+          }
           const ts = lastOrderBook.ts ? new Date(lastOrderBook.ts).toLocaleTimeString() : "--";
           orderbookStatus.textContent = `更新 ${ts}`;
         } catch (error) {
@@ -2114,6 +2497,8 @@
       instSelect.addEventListener("change", () => {
         resetHistoryState();
         orderBookHistory = [];
+        orderBookBandHistory = [];
+        orderBookBandSegments = [];
         loadInitialCandles();
         loadOrderBook();
       });
@@ -2122,6 +2507,8 @@
         applySourceOptions();
         resetHistoryState();
         orderBookHistory = [];
+        orderBookBandHistory = [];
+        orderBookBandSegments = [];
         loadInitialCandles();
         loadOrderBook();
       });
@@ -2138,6 +2525,14 @@
       spikeThresholdInput?.addEventListener("change", renderSpikeTable);
       mergeIntervalInput?.addEventListener("change", renderMergeTable);
       mergeThresholdInput?.addEventListener("change", renderMergeTable);
+      mergeIntervalInput?.addEventListener("change", () => {
+        rebuildOrderBookBands();
+        renderOrderBookBands();
+      });
+      mergeThresholdInput?.addEventListener("change", () => {
+        rebuildOrderBookBands();
+        renderOrderBookBands();
+      });
       themeToggle.addEventListener("click", () => {
         setTheme(currentTheme === "light" ? "dark" : "light");
       });
@@ -2245,10 +2640,24 @@
         chart.subscribeAction(klinecharts.ActionType.OnCrosshairChange, (payload) => {
           updateVolumeTooltip(payload);
         });
+        chart.subscribeAction(klinecharts.ActionType.OnVisibleRangeChange, () => {
+          renderOrderBookBands();
+        });
         chart.loadMore((timestamp) => {
           loadMoreHistory(timestamp);
         });
+        ensureOrderBookBandCanvas();
+        resizeOrderBookBandCanvas();
       }
+      chartContainer.addEventListener("mousemove", handleOrderBookBandHover);
+      chartContainer.addEventListener("mouseleave", () => {
+        if (orderBookBandHoverTimer) {
+          clearTimeout(orderBookBandHoverTimer);
+          orderBookBandHoverTimer = null;
+        }
+        orderBookBandHoverTarget = null;
+        hideOrderBookBandTooltip();
+      });
 
       setInterval(() => {
         if (!chart) {
@@ -2307,6 +2716,7 @@
       loadOrderBook();
       window.addEventListener("resize", updatePaneHeights);
       window.addEventListener("resize", resizeOrderBookCanvas);
+      window.addEventListener("resize", resizeOrderBookBandCanvas);
       setInterval(loadRecentCandles, 15000);
       setInterval(refreshRealtimePrice, 100);
       setInterval(loadOrderBook, 1000);

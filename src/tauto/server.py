@@ -237,6 +237,26 @@ def get_orderbook(
     }
 
 
+@app.get("/api/orderbook/history")
+def get_orderbook_history(
+    inst_id: str = Query(DEFAULT_INST_ID, description="Instrument ID"),
+    start_ts: Optional[int] = Query(None, description="Start timestamp in milliseconds"),
+    end_ts: Optional[int] = Query(None, description="End timestamp in milliseconds"),
+    limit: int = Query(5000, ge=1, le=10000),
+) -> dict:
+    snapshots = store.fetch_orderbook_snapshots(
+        inst_id=inst_id,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        limit=limit,
+    )
+    return {
+        "instId": inst_id,
+        "count": len(snapshots),
+        "data": snapshots,
+    }
+
+
 def _store_binance_klines(
     inst_id: str,
     bar: str,
